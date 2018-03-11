@@ -273,9 +273,11 @@
 
     let rec scanTokens ctx source =
         if not (isAtEnd ctx source) then
-            let ctx = moveToCurrent ctx
-            let newctx = scanToken ctx source
-            scanTokens newctx source
+                let ctx' = moveToCurrent ctx
+                let ctx' = scanToken ctx' source
+                scanTokens ctx' source
             else
-            ctx
+               let ctx' = addToken ctx EOF
+               let ctx' = { ctx' with tokens = List.rev ctx'.tokens } // List is backwards, because we accumulate from start.
+               ctx'
  

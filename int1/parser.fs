@@ -35,7 +35,8 @@ type oneOrNone<'t> = Option<'t>
 
 // Operators
 type equal_operator =
-    | EQUALS
+    | EQUAL_EQUAL
+    | EQUALS // Probably not in this group.
     | NOT_EQUALS
 
 type inequal_operator =
@@ -243,8 +244,8 @@ let matchParser ctx tokenTypeList =
     match List.tryFind (isFilter ctx) tokenTypeList with 
     | Some(_)  -> 
         let token, newCtx = advance ctx
-        (true, newCtx)
-    | None -> (false, ctx)
+        (Some(token), newCtx)
+    | None -> (None, ctx)
 
 // Recursive descent parser
 
@@ -269,6 +270,7 @@ let consume ctx tokenType message =
 // Book did not have this concept.
 let makeBinaryOp token : binary_operator =
     match token.tokenType with
+    | TokenType.EQUAL_EQUAL -> EQUALITY_OP EQUAL_EQUAL
     | TokenType.EQUAL -> EQUALITY_OP EQUALS
     | TokenType.BANG_EQUAL -> EQUALITY_OP NOT_EQUALS
     | TokenType.LESS -> INEQUALITY_OP LT
@@ -279,54 +281,50 @@ let makeBinaryOp token : binary_operator =
     | TokenType.SLASH -> MULTIPLY_OP DIV
     | TokenType.PLUS -> ADD_OP PLUS
     | TokenType.MINUS -> ADD_OP MINUS
-    | _ -> failwith "Unexpected operator"
+    | _ -> failwith "Unexpected operator: %A" token.tokenType
     
 
 // primary → NUMBER | STRING | "false" | "true" | "nil" | "(" expression ")" ;
 let rec primary ctx =
-    match matchParser ctx [FALSE] with
-    | true, newCtx ->
-        let result = PrimaryExpr ( BOOL { value= false}) // TBD: In book was LiteralExpr
-        newCtx, result
-    | false, _ ->
-        match matchParser ctx [TRUE] with 
-        | true, newCtx ->
+    let matchedToken, newCtx = matchParser ctx [FALSE; TRUE; TokenType.NIL; TokenType.NUMBER; TokenType.STRING; LEFT_PAREN]
+    match matchedToken with
+    | Some(token) ->
+        match token.tokenType with
+        | FALSE ->
+            let result = PrimaryExpr ( BOOL { value= false}) // TBD: In book was LiteralExpr
+            newCtx, result
+        | TRUE ->
             let result = PrimaryExpr ( BOOL { value= true}) // TBD: In book was LiteralExpr
             newCtx, result
-        | false, _ -> 
-            match matchParser ctx [TokenType.NIL] with 
-            | true, newCtx ->
-                let result = PrimaryExpr ( NIL ) // TBD: In book was LiteralExpr
-                newCtx, result
-            | false, _ ->
-                match matchParser ctx [TokenType.NUMBER] with 
-                | true, newCtx ->
-                    let prevTok, prevCtx = (previous newCtx)
-                    let result = PrimaryExpr ( NUMBER { value= derefNumber prevTok.literal }) // TBD: In book was LiteralExprLiteralExpr (previous ctx).literal
-                    newCtx, result
-                | false, _ ->
-                    match matchParser ctx [TokenType.STRING] with 
-                    | true, newCtx ->
-                        let prevTok, prevCtx = (previous newCtx)
-                        let result = PrimaryExpr ( STRING { value= derefString prevTok.literal}) // TBD: In book was LiteralExprLiteralExpr (previous ctx).literal
-                        newCtx, result
-                    | false, _ ->
-                        match matchParser ctx [LEFT_PAREN] with 
-                        | true, newCtx ->
-                            let newCtx, ex = expression newCtx
-                            let newCtx = consume newCtx RIGHT_PAREN "Except ')' after expression."
-                            let result = GroupingExpr ex
-                            newCtx, result
-                        | false, _ ->
-                            let newCtx = errorP ctx "Expect expression."
-                            failwith "Expect expression"
+        | TokenType.NIL ->
+            let result = PrimaryExpr ( NIL ) // TBD: In book was LiteralExpr
+            newCtx, result
+        | TokenType.NUMBER ->
+            let prevTok, prevCtx = (previous newCtx)
+            let result = PrimaryExpr ( NUMBER { value= derefNumber prevTok.literal }) // TBD: In book was LiteralExprLiteralExpr (previous ctx).literal
+            newCtx, result
+        | TokenType.STRING ->
+            let prevTok, prevCtx = (previous newCtx)
+            let result = PrimaryExpr ( STRING { value= derefString prevTok.literal}) // TBD: In book was LiteralExprLiteralExpr (previous ctx).literal
+            newCtx, result
+        | TokenType.LEFT_PAREN ->
+            let newCtx, ex = expression newCtx
+            let newCtx = consume newCtx RIGHT_PAREN "Except ')' after expression."
+            let result = GroupingExpr ex
+            newCtx, result
+        | _ -> 
+            let newCtx = errorP ctx "Expect expression not in set..."
+            failwith "Expect expression not in set..."
+    | None ->
+        let newCtx = errorP ctx "Expect expression."
+        failwith "Expect expression"
             
 
     // Have to use "AND" below because expression is circular.
 and unary ctx : ParserContext* expr   =
     let isMatched = matchParser ctx [TokenType.BANG; TokenType.MINUS]
     match isMatched with
-    | true, newCtx ->
+    | Some(token), newCtx ->
         let tokOp, newCtx = previous newCtx
         let newCtx, right = unary newCtx
         match tokOp.tokenType with
@@ -338,12 +336,12 @@ and unary ctx : ParserContext* expr   =
             newCtx, result
         | _ -> failwith "Invalid unary operator"
 
-    | false, _ ->
+    | None, _ ->
         primary ctx
 
 and moreBinary ctx ex1 lstTokens =
     match matchParser ctx lstTokens with
-    | true, newCtx ->
+    | Some(matchedToken), newCtx ->
         let tokOp, newCtx = previous newCtx // Do we ever use answer?
         let newCtx, (un:expr) = unary newCtx
 #if OLD
@@ -352,20 +350,24 @@ and moreBinary ctx ex1 lstTokens =
 #else
         let opBinary = makeBinaryOp tokOp
         match un with 
-        | UnaryExpr u ->    match u with 
+        | UnaryExpr u ->match u with 
                         | PRIMARY p -> 
                             // Stop recursion
                             let expr2 = BinaryExpr (ex1, opBinary, PrimaryExpr p )
-                            newCtx, expr2
+                            moreBinary newCtx expr2 lstTokens
+                            //newCtx, expr2
                         | UNARY (op,exprRight) -> 
                             // Recurse
-                            let expr2 = BinaryExpr (ex1, opBinary, exprRight )
+                            let unRight = UnaryExpr (UNARY (op, exprRight))
+                            let expr2 = BinaryExpr (ex1, opBinary, unRight )
                             moreBinary newCtx expr2 lstTokens
         | PrimaryExpr p -> let expr2 = BinaryExpr( ex1, opBinary, PrimaryExpr p) // This case needed because primary() function can return lots of things.
                            moreBinary newCtx expr2 lstTokens
+        | GroupingExpr g -> let expr2 = BinaryExpr( ex1, opBinary, GroupingExpr g)
+                            moreBinary newCtx expr2 lstTokens
         | _ -> failwith "did not expect any other kind of exprssion"
 #endif
-    | false, newCtx ->
+    | None, newCtx ->
         newCtx, ex1
 
 
@@ -409,7 +411,7 @@ and comparison ctx =
     
 and equality ctx =
     let newCtx, ex1 = comparison ctx
-    let ex2 = moreBinary newCtx ex1 [BANG_EQUAL; EQUAL_EQUAL]
+    let ex2 = moreBinary newCtx ex1 [BANG_EQUAL; TokenType.EQUAL_EQUAL; TokenType.EQUAL]
     ex2
 
 and expression ctx =
