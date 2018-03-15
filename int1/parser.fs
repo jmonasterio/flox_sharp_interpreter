@@ -20,7 +20,7 @@ type close_paren_terminal = CLOSE
 //        | U of 'u
 #endif
 
-
+#if OLD
 // *
 type zeroOrMore<'t> = 
     | ZERO
@@ -31,7 +31,7 @@ type oneOrMore<'t> = List<'t>
 
 // ? 
 type oneOrNone<'t> = Option<'t>
-
+#endif
 
 // Operators
 type equal_operator =
@@ -39,7 +39,7 @@ type equal_operator =
     | EQUALS // Probably not in this group.
     | NOT_EQUALS
 
-type inequal_operator =
+type comparison_operator =
     | LT
     | LTE
     | GT
@@ -59,7 +59,7 @@ type add_operator =
 
 type binary_operator =
     | EQUALITY_OP of equal_operator
-    | INEQUALITY_OP of inequal_operator
+    | COMPARISON_OP of comparison_operator
     | MULTIPLY_OP of mul_operator
     | ADD_OP of add_operator
 
@@ -82,11 +82,15 @@ type expr =
 
 
 type expr =
+    // These are for order of operations
+#if OLD
     | EqualityExpr of equality
     | ComparisonExpr of comparison
     | AdditionExpr of addition
     | MultiplicationExpr of multiplication
-    | UnaryExpr of unary // This one is goofy
+#endif
+    // These are outputs
+    | UnaryExpr of unary 
     | PrimaryExpr of primary
     | BinaryExpr of binary
     | GroupingExpr of grouping
@@ -101,18 +105,22 @@ and primary =
 and unary = 
     | UNARY of unary_operator * expr // TBD: Does not match book.
     | PRIMARY of primary // <-- Without this we never "FINISH".
+#if OLD
 and multiplication = unary * zeroOrMore< mul_operator * unary>
 
 and addition = multiplication * zeroOrMore< add_operator * multiplication>
 
-and comparison = addition * zeroOrMore< inequal_operator * addition>
+and comparison = addition * zeroOrMore< comparison_operator * addition>
 
 and equality = comparison * zeroOrMore< equal_operator * comparison>
 
 
 type expression = equality
+#endif
 
-
+type Stmt =
+    | Expression of expr
+    | Print of expr
    
 #if FALSE
 let (^^) p q = not(p && q) && (p || q) // makeshift xor operator
@@ -134,6 +142,7 @@ let (|ZOM|) (c:zeroOrMore<'t>) =
 
 let rec prettyPrint (e:expr)  =
     match e with 
+#if OLD
         | EqualityExpr (c, more) -> prettyPrint (ComparisonExpr c)
                                     match more with
                                         | MORE z -> 
@@ -166,6 +175,7 @@ let rec prettyPrint (e:expr)  =
                                                                 printfn "%A" op
                                                                 prettyPrint (UnaryExpr un)
                                                 | ZERO -> ()
+#endif
         | BinaryExpr e ->       let left,op,right = e
                                 prettyPrint left
                                 printfn "%A" op
@@ -183,12 +193,13 @@ let rec prettyPrint (e:expr)  =
         | GroupingExpr e ->    printf "("
                                prettyPrint e
                                printf ")"
+        //| _ -> failwith "Not expected."
 
 
 
 type ParserContext = {
     current: int
-    tokens: Token list
+    tokens: Scanner.Token list
     hadError: bool
     }
 
@@ -202,7 +213,7 @@ let initParserContext tokens =
     newCtx    
 
 let report line where message =
-    printfn "[line %A] Error%A:%A" line where message
+    printfn "[line %A] Error %s: %s" line where message
 
 let errorP ctx message =
     let token = ctx.tokens.[ctx.current]
@@ -230,14 +241,16 @@ let check ctx matchTokenType =
 
 // The most recently consume token (might be better to just store that).
 let previous ctx =
-    ( ctx.tokens.[ctx.current-1], ctx )  // TBD: Could go negative.
+    ctx.tokens.[ctx.current-1]
 
 let advance ctx = 
     if not (isAtEnd ctx) then
-        previous { ctx with current=ctx.current+1 }
+        let ctx' = { ctx with current=ctx.current+1 } // THis is stupid.
+        (previous ctx', ctx')
+        
     else
-        previous ctx
-    
+        (previous ctx, ctx)
+   
 let matchParser ctx tokenTypeList =
     let isFilter ctx token =
         check ctx token
@@ -252,12 +265,12 @@ let matchParser ctx tokenTypeList =
 let derefNumber ol =
     match ol with
     | Some(NumberLiteral sl)  -> sl
-    | _ -> 0.0 // TBD: ERROR
+    | _ -> failwith "Expected number"
 
 let derefString ol =
     match ol with
     | Some(StringLiteral sl)  -> sl
-    | _ -> "" // TBD: ERROR
+    | _ -> failwith "Expected string"
 
 let consume ctx tokenType message =
     if check ctx tokenType then
@@ -273,15 +286,15 @@ let makeBinaryOp token : binary_operator =
     | TokenType.EQUAL_EQUAL -> EQUALITY_OP EQUAL_EQUAL
     | TokenType.EQUAL -> EQUALITY_OP EQUALS
     | TokenType.BANG_EQUAL -> EQUALITY_OP NOT_EQUALS
-    | TokenType.LESS -> INEQUALITY_OP LT
-    | TokenType.LESS_EQUAL -> INEQUALITY_OP LTE
-    | TokenType.GREATER -> INEQUALITY_OP GT
-    | TokenType.GREATER_EQUAL -> INEQUALITY_OP GTE
+    | TokenType.LESS -> COMPARISON_OP LT
+    | TokenType.LESS_EQUAL -> COMPARISON_OP LTE
+    | TokenType.GREATER -> COMPARISON_OP GT
+    | TokenType.GREATER_EQUAL -> COMPARISON_OP GTE
     | TokenType.STAR -> MULTIPLY_OP MUL
     | TokenType.SLASH -> MULTIPLY_OP DIV
     | TokenType.PLUS -> ADD_OP PLUS
     | TokenType.MINUS -> ADD_OP MINUS
-    | _ -> failwith "Unexpected operator: %A" token.tokenType
+    | _ -> failwith (sprintf "Unexpected operator: %A" token.tokenType)
     
 
 // primary → NUMBER | STRING | "false" | "true" | "nil" | "(" expression ")" ;
@@ -300,11 +313,11 @@ let rec primary ctx =
             let result = PrimaryExpr ( NIL ) // TBD: In book was LiteralExpr
             newCtx, result
         | TokenType.NUMBER ->
-            let prevTok, prevCtx = (previous newCtx)
+            let prevTok = (previous newCtx)
             let result = PrimaryExpr ( NUMBER { value= derefNumber prevTok.literal }) // TBD: In book was LiteralExprLiteralExpr (previous ctx).literal
             newCtx, result
         | TokenType.STRING ->
-            let prevTok, prevCtx = (previous newCtx)
+            let prevTok = (previous newCtx)
             let result = PrimaryExpr ( STRING { value= derefString prevTok.literal}) // TBD: In book was LiteralExprLiteralExpr (previous ctx).literal
             newCtx, result
         | TokenType.LEFT_PAREN ->
@@ -320,13 +333,13 @@ let rec primary ctx =
         failwith "Expect expression"
             
 
-    // Have to use "AND" below because expression is circular.
+ // Have to use "AND" below because expression is circular.
 and unary ctx : ParserContext* expr   =
     let isMatched = matchParser ctx [TokenType.BANG; TokenType.MINUS]
     match isMatched with
-    | Some(token), newCtx ->
-        let tokOp, newCtx = previous newCtx
-        let newCtx, right = unary newCtx
+    | Some(token), ctx' ->
+        let tokOp = previous ctx'
+        let newCtx, right = unary ctx'
         match tokOp.tokenType with
         | TokenType.BANG ->
             let result = UnaryExpr (UNARY(unary_operator.BANG, right))   // TBD: This is a horrible convert
@@ -341,9 +354,9 @@ and unary ctx : ParserContext* expr   =
 
 and moreBinary ctx ex1 lstTokens =
     match matchParser ctx lstTokens with
-    | Some(matchedToken), newCtx ->
-        let tokOp, newCtx = previous newCtx // Do we ever use answer?
-        let newCtx, (un:expr) = unary newCtx
+    | Some(matchedToken), ctx' ->
+        let tokOp = previous ctx' // Do we ever use answer?
+        let ctx', (un:expr) = unary ctx'
 #if OLD
         let expr2 = BinaryExpr (ex1, tokOp, un )
         newCtx, expr2
@@ -354,17 +367,17 @@ and moreBinary ctx ex1 lstTokens =
                         | PRIMARY p -> 
                             // Stop recursion
                             let expr2 = BinaryExpr (ex1, opBinary, PrimaryExpr p )
-                            moreBinary newCtx expr2 lstTokens
+                            moreBinary ctx' expr2 lstTokens
                             //newCtx, expr2
                         | UNARY (op,exprRight) -> 
                             // Recurse
                             let unRight = UnaryExpr (UNARY (op, exprRight))
                             let expr2 = BinaryExpr (ex1, opBinary, unRight )
-                            moreBinary newCtx expr2 lstTokens
+                            moreBinary ctx' expr2 lstTokens
         | PrimaryExpr p -> let expr2 = BinaryExpr( ex1, opBinary, PrimaryExpr p) // This case needed because primary() function can return lots of things.
-                           moreBinary newCtx expr2 lstTokens
+                           moreBinary ctx' expr2 lstTokens
         | GroupingExpr g -> let expr2 = BinaryExpr( ex1, opBinary, GroupingExpr g)
-                            moreBinary newCtx expr2 lstTokens
+                            moreBinary ctx' expr2 lstTokens
         | _ -> failwith "did not expect any other kind of exprssion"
 #endif
     | None, newCtx ->
@@ -417,7 +430,63 @@ and equality ctx =
 and expression ctx =
     equality ctx
 
+let synchronize ctx =
+    
+    let rec eatTokens ctx =
+        if not (isAtEnd ctx) then 
+          let token = previous ctx
+          if token.tokenType = SEMICOLON then
+              let tok = peek ctx
+              match tok.tokenType with
+                    | CLASS -> ctx
+                    | FUN -> ctx
+                    | VAR -> ctx
+                    | FOR -> ctx
+                    | IF -> ctx
+                    | WHILE -> ctx
+                    | PRINT -> ctx
+                    | RETURN -> ctx
+                    | _ -> 
+                       let (token, ctx') = advance ctx
+                       eatTokens ctx'
+          else
+            ctx
+        else
+            ctx
+
+    let ctx' = eatTokens ctx
+    let (token, ctx') = advance ctx'
+    ctx'
+
+
+let expressionStatement ctx =
+    let (ctx', expr) = expression ctx
+    let ctx' = consume ctx' SEMICOLON "Expected ';' after expression."
+    Expression expr
+
+let printStatement ctx = 
+    let (ctx', value) = expression ctx
+    let ctx' = consume ctx' SEMICOLON "Expected ';' after value."
+    Print value
+    
+let statement ctx =
+    let matchedToken, ctx' = matchParser ctx [PRINT]
+    let stm = match matchedToken with
+                                    | Some(token) -> printStatement ctx'
+                                    | None -> expressionStatement ctx'
+    (ctx', stm)
+    
+
 let parse tokens = 
     let ctx = initParserContext tokens
-    let result = expression ctx
-    result
+
+    let rec parseStatements (ctx:ParserContext) (listOfStatements:List<Stmt>) =
+        if not( isAtEnd ctx) then
+            let (ctx', s) = statement ctx
+            (ctx', s :: listOfStatements)
+        else
+            (ctx, listOfStatements)
+
+
+    let (ctx', statements) = parseStatements ctx []
+    statements

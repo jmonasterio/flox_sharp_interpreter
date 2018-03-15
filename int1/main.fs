@@ -1,17 +1,21 @@
 ﻿// F# interpreter
-
 open System
 open System.IO
 open Scanner
 open Parser
+open Interpreter
 
 let run source =
-    let ctx = initScanContext // TBD: Hide inside like we did for parse below.
-    let newCtx = scanTokens ctx source
-    printfn "%A" newCtx.tokens
+    let tokens = scan source
+    //printfn "%A" tokens
+    
+    try
+        let statementList = parse tokens
+        //printfn "%A" statementList
+        interpret statementList
+    with
+    | :? System.Exception as ex -> printfn "FAIL: %A" ex.Message
 
-    let expression = parse newCtx.tokens
-    printfn "%A" expression
 
 let runPrompt x =
     while true do
@@ -28,9 +32,16 @@ let runFile path =
 let main argv =
     printfn "Hello World from F#!"
 
+#if OLD
     let e = MultiplicationExpr( 
-                PRIMARY(NUMBER {value = 2.0}),  
-                MORE( [ MUL, UNARY( BANG, UnaryExpr(PRIMARY( NUMBER {value = 1.0}))) ])) 
+                PRIMARY( Parser.NUMBER {value = 2.0}),  
+                MORE( [ MUL, UNARY( BANG, UnaryExpr(PRIMARY( Parser.NUMBER {value = 1.0}))) ])) 
+#else
+    let e = BinaryExpr( 
+                PrimaryExpr( Parser.NUMBER {value = 2.0}), 
+                MULTIPLY_OP MUL, 
+                UnaryExpr( UNARY( BANG, UnaryExpr(PRIMARY( Parser.NUMBER {value = 1.0}))) ) )
+#endif
     printfn "%A" e
 
 

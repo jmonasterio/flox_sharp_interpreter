@@ -8,7 +8,12 @@
   <ItemGroup>
     <Compile Include="Scanner.fs" />
     <Compile Include="Parser.fs" />
+    <Compile Include="Interpreter.fs" />
     <Compile Include="Main.fs" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <Content Include="Todo.txt" />
   </ItemGroup>
 
 </Project>

@@ -50,10 +50,10 @@
         result
 
 
-    let addTokenWithLiteral ctx tokenType objectLiteral =
+    let addTokenWithLiteral ctx tokenType objectLiteral lexeme =
         let token = {
             tokenType = tokenType;
-            lexeme = "ch???"; // TBD
+            lexeme = lexeme
             literal = objectLiteral;
             line = ctx.line;
         }
@@ -64,9 +64,9 @@
         result
     
     
-    let addToken ctx tokenType = 
+    let addToken ctx tokenType lexeme = 
         let literal = None
-        addTokenWithLiteral ctx tokenType literal
+        addTokenWithLiteral ctx tokenType literal lexeme
 
     let isAtEnd ctx source =
         ctx.current >= String.length source
@@ -133,9 +133,9 @@
                 error ctx "Unterminated string"
             else
                 let advancedCtx = advance ctx source // Closing "
-                let value = source.[advancedCtx.start+1 .. advancedCtx.current-1]
+                let value = source.[advancedCtx.start+1 .. advancedCtx.current-2]
                 let literal = Some(StringLiteral value)
-                addTokenWithLiteral ctx STRING literal
+                addTokenWithLiteral advancedCtx STRING literal value
 
 
 
@@ -176,34 +176,35 @@
         else
             let text = source.[ctx.start .. ctx.current-1]
             match text with
-                | "and" -> addToken ctx AND
-                | "class" -> addToken ctx CLASS
-                | "else" -> addToken ctx ELSE
-                | "false" -> addToken ctx FALSE
-                | "for" -> addToken ctx FOR
-                | "fun" -> addToken ctx FUN
-                | "if" -> addToken ctx IF
-                | "nil" -> addToken ctx NIL
-                | "or" -> addToken ctx OR
-                | "print" -> addToken ctx PRINT
-                | "return" -> addToken ctx RETURN
-                | "super" -> addToken ctx SUPER
-                | "this" -> addToken ctx THIS
-                | "true" -> addToken ctx TRUE
-                | "var" -> addToken ctx VAR
-                | "while" -> addToken ctx WHILE
+                | "and" -> addToken ctx AND text
+                | "class" -> addToken ctx CLASS text
+                | "else" -> addToken ctx ELSE text
+                | "false" -> addToken ctx FALSE text
+                | "for" -> addToken ctx FOR text
+                | "fun" -> addToken ctx FUN text
+                | "if" -> addToken ctx IF text
+                | "nil" -> addToken ctx NIL text
+                | "or" -> addToken ctx OR text
+                | "print" -> addToken ctx PRINT text
+                | "return" -> addToken ctx RETURN text
+                | "super" -> addToken ctx SUPER text
+                | "this" -> addToken ctx THIS text
+                | "true" -> addToken ctx TRUE text
+                | "var" -> addToken ctx VAR text
+                | "while" -> addToken ctx WHILE text
                 | _ -> 
                     let identifierLiteral = Some(IdentifierLiteral text)
-                    addTokenWithLiteral ctx IDENTIFIER identifierLiteral
+                    addTokenWithLiteral ctx IDENTIFIER identifierLiteral text
 
         
 
     let numberLiteral ctx (source:string) =
         let newCtx = consumeDigits ctx source
         let newCtx2 = consumeFractionalPart newCtx source
-        let ff = Double.Parse source.[newCtx2.start .. newCtx2.current-1]
+        let digitString = source.[newCtx2.start .. newCtx2.current-1]
+        let ff = Double.Parse digitString
         let literal = Some(NumberLiteral ff)
-        addTokenWithLiteral newCtx2 NUMBER literal
+        addTokenWithLiteral newCtx2 NUMBER literal digitString
 
         // Active patterns used to pattern match tokens.
     let (|Alpha|_|) (ch:char) =
@@ -222,31 +223,31 @@
     let scanToken ctx source =
         let ctx = advance ctx source
         match ctx.ch with
-            | '(' -> addToken ctx LEFT_PAREN
-            | ')' -> addToken ctx RIGHT_PAREN
-            | '{' -> addToken ctx LEFT_BRACE
-            | '}' -> addToken ctx RIGHT_BRACE
-            | ',' -> addToken ctx COMMA
-            | '.' -> addToken ctx DOT
-            | '-' -> addToken ctx MINUS
-            | '+' -> addToken ctx PLUS
-            | ';' -> addToken ctx SEMICOLON
-            | '*' -> addToken ctx STAR
-            | '!' -> addTokenOptionalEqual ctx source BANG BANG_EQUAL
-            | '=' -> addTokenOptionalEqual ctx source EQUAL EQUAL_EQUAL
-            | '<' -> addTokenOptionalEqual ctx source LESS LESS_EQUAL
-            | '>' -> addTokenOptionalEqual ctx source GREATER GREATER_EQUAL
-            | '/' -> let (matched, newctx) = matchChar ctx source '/'
+            | '(' -> addToken ctx LEFT_PAREN "("
+            | ')' -> addToken ctx RIGHT_PAREN ")"
+            | '{' -> addToken ctx LEFT_BRACE "{"
+            | '}' -> addToken ctx RIGHT_BRACE "}"
+            | ',' -> addToken ctx COMMA ","
+            | '.' -> addToken ctx DOT "."
+            | '-' -> addToken ctx MINUS "-"
+            | '+' -> addToken ctx PLUS "+"
+            | ';' -> addToken ctx SEMICOLON ";"
+            | '*' -> addToken ctx STAR "*"
+            | '!' -> addTokenOptionalEqual ctx source BANG BANG_EQUAL "!="
+            | '=' -> addTokenOptionalEqual ctx source EQUAL EQUAL_EQUAL "=="
+            | '<' -> addTokenOptionalEqual ctx source LESS LESS_EQUAL "<="
+            | '>' -> addTokenOptionalEqual ctx source GREATER GREATER_EQUAL ">="
+            | '/' -> let (matched, newctx) = matchChar ctx source '/' 
                      if  matched then
                         consumeUntilEndOfLine newctx source
                      else
-                        addToken newctx SLASH
+                        addToken newctx SLASH "/"
             | ' ' -> ctx
             | '\r' -> ctx
             | '\t' -> ctx
             | '\n' -> { ctx with line=ctx.line+1}
             | '"' -> stringLiteral ctx source
-            | Digit -> numberLiteral ctx source
+            | Digit -> numberLiteral ctx source 
             | Alpha -> identifier ctx source
             | _ -> ctx
 
@@ -271,13 +272,17 @@
                             }
         result
 
-    let rec scanTokens ctx source =
+    let rec scanTokens ctx source : ScannerContext =
         if not (isAtEnd ctx source) then
                 let ctx' = moveToCurrent ctx
-                let ctx' = scanToken ctx' source
-                scanTokens ctx' source
+                let ctx'' = scanToken ctx' source
+                scanTokens ctx'' source
             else
-               let ctx' = addToken ctx EOF
-               let ctx' = { ctx' with tokens = List.rev ctx'.tokens } // List is backwards, because we accumulate from start.
-               ctx'
+               let ctx' = addToken ctx EOF "EOF"
+               { ctx' with tokens = List.rev ctx'.tokens } // List is backwards, because we accumulate from start.
  
+    let scan source =
+        let ctx = initScanContext 
+        let ctx' = scanTokens ctx source
+        //printfn "%A" ctx'.tokens
+        ctx'.tokens
