@@ -30,21 +30,14 @@ let runFile path =
 
 [<EntryPoint>]
 let main argv =
-    printfn "Hello World from F#!"
+    printfn "flox#"
 
 #if OLD
-    let e = MultiplicationExpr( 
-                PRIMARY( Parser.NUMBER {value = 2.0}),  
-                MORE( [ MUL, UNARY( BANG, UnaryExpr(PRIMARY( Parser.NUMBER {value = 1.0}))) ])) 
-#else
     let e = BinaryExpr( 
                 PrimaryExpr( Parser.NUMBER {value = 2.0}), 
                 MULTIPLY_OP MUL, 
                 UnaryExpr( UNARY( BANG, UnaryExpr(PRIMARY( Parser.NUMBER {value = 1.0}))) ) )
-#endif
     printfn "%A" e
-
-
 //    let e2 = AdditionExpr( MultiplicationExpr(
 //                PRIMARY(STRING {value = "TEST"}),  
 //                MORE( [ MUL, UNARY_OPERATOR( BANG, PRIMARY( NUMBER {value = 1.0})) ])) ) 
@@ -52,8 +45,11 @@ let main argv =
 
 
     prettyPrint e
+#endif
+
+
     if ((Array.length argv) > 1) then
-            printfn "Usage: jlox [script]"
+            printfn "Usage: flox [script]"
         else 
             if (Array.length argv = 1) then
                 runFile argv.[0]

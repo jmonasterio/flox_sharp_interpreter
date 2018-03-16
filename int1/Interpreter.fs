@@ -36,7 +36,7 @@ let isNumbery value =
 
 let isStringy value =
     match value with
-    | BOOL b -> true
+    | BOOL b -> false
     | NUMBER f -> false
     | STRING s -> true
     | NIL -> false
@@ -130,6 +130,8 @@ let rec evalExpression (e:expr) : Literal  =
                             | Parser.STRING s -> STRING s.value
                             | Parser.BOOL b -> BOOL b.value
                             | Parser.NIL -> NIL
+                            | Parser.IDENTIFIER i -> NUMBER 0.0 // TBD IDENTIFIER i.name
+                            | Parser.THIS -> NUMBER 0.0 // TBD
         | GroupingExpr e ->    evalExpression e
         //| _ -> failwith "Unexpected expression."
 
@@ -141,17 +143,28 @@ let toString lit =
     | NIL -> "NIL"
     result
 
-let rec execStatements( statements:Stmt list) =
+let rec execStatements( statements:Stmt option list) =
     match statements with
     | [] -> ()
     | s :: xs -> 
         let result = match s with 
-                        | Expression e -> evalExpression e 
-                        | Print p -> evalExpression p
+                        | None -> NIL
+                        | Some( Stmt.Expression e) -> evalExpression e 
+                        | Some( Stmt.Print p) -> evalExpression p
+                        | Some( Stmt.Variable (name,None)) -> NIL
+                        | Some( Stmt.Variable (name,Some(expr.PrimaryExpr e))) -> evalExpression (PrimaryExpr e)
+                        | Some( Stmt.Variable (name,Some(expr.UnaryExpr e))) -> evalExpression (UnaryExpr e)
+                        | Some( Stmt.Variable (name,Some(expr.BinaryExpr e))) -> evalExpression (BinaryExpr e)
+                        | Some( Stmt.Variable (name,Some(expr.GroupingExpr e))) -> evalExpression (GroupingExpr e)
+#if OLD
+                        // TBD Why can't I use Some(expr.Expression e) instead of 4 lines above???
+                        | Some( Variable (name,Some(expr.Expression e))) -> evalExpression( e)
+#endif
+
         printfn "%s" (toString result) |> ignore
         execStatements xs
         
-let interpret (statements:List<Stmt>) : unit = 
+let interpret (statements:Stmt option list) : unit = 
     try
         execStatements statements
     with 

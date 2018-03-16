@@ -1,4 +1,8 @@
 ﻿print 3+4/5 fails
+previous should just be remembered in the context
 Book design had a thing called a literal expr.
+We have an identifier literal. Maybe identifier should be a literal, not use lexeme.
+
+
 Pass grammar to parser, and use it to parse instead of writing recursive descent parsers.
 
