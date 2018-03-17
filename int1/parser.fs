@@ -503,12 +503,13 @@ let parse tokens =
     let rec parseStatements (ctx:ParserContext) (listOfStatements:Stmt option list) =
         if not( isAtEnd ctx) then
             let ctx', s = declaration ctx
-            match s with 
+            let ctx'', xs = match s with 
                 | Some(s') -> (ctx', Some(s') :: listOfStatements)
                 | None -> ctx', listOfStatements // Happens after a synchronize.
+            parseStatements ctx'' xs
         else
             (ctx, listOfStatements)
 
 
     let (ctx', statements) = parseStatements ctx []
-    statements
+    List.rev statements

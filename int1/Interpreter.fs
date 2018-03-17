@@ -1,4 +1,5 @@
 ﻿module Interpreter
+open Scanner
 open Parser
 
 
@@ -11,15 +12,26 @@ type Literal =
 let runtimeError m =
     failwith m
 
-type InterpreterContext =
+type Environment =
     {
     values: Map<string,Literal>;
     }
 
-let initInterpreterContext =
+let initEnvironment =
     {
     values = [] |> Map.ofSeq
     }
+
+let define (name:identifier_terminal) value ctx =
+    { ctx with values = ctx.values.Add ( name.name, value )
+    }
+
+let get (name:identifier_terminal) ctx = // In the book, this took a TOKEN, but I think this is better.
+    if not (ctx.values.ContainsKey name.name) then
+        let msg = sprintf "Undefined variable %A" name.name
+        failwith msg
+    ctx.values.Item name.name
+   
 
 
 let CNUMBER value : float =
@@ -142,7 +154,7 @@ let rec evalExpression (e:expr) ctx = //: (Literal, InterpreterContext) =
                             | Parser.STRING s -> STRING s.value, ctx
                             | Parser.BOOL b -> BOOL b.value, ctx
                             | Parser.NIL -> NIL, ctx
-                            | Parser.IDENTIFIER i -> NUMBER 0.0, ctx // TBD IDENTIFIER i.name
+                            | Parser.IDENTIFIER i -> (get i ctx), ctx // TBD IDENTIFIER i.name
                             | Parser.THIS -> NUMBER 0.0, ctx // TBD
         | GroupingExpr e ->    evalExpression e ctx
         //| _ -> failwith "Unexpected expression."
@@ -164,10 +176,14 @@ let rec execStatements( statements:Stmt option list) ctx =
                         | Some( Stmt.Expression e) -> evalExpression e ctx
                         | Some( Stmt.Print p) -> evalExpression p ctx
                         | Some( Stmt.Variable (name,None)) -> NIL, ctx
-                        | Some( Stmt.Variable (name,Some(expr.PrimaryExpr e))) -> evalExpression (PrimaryExpr e) ctx
-                        | Some( Stmt.Variable (name,Some(expr.UnaryExpr e))) -> evalExpression (UnaryExpr e) ctx
-                        | Some( Stmt.Variable (name,Some(expr.BinaryExpr e))) -> evalExpression (BinaryExpr e) ctx 
-                        | Some( Stmt.Variable (name,Some(expr.GroupingExpr e))) -> evalExpression (GroupingExpr e) ctx
+                        | Some( Stmt.Variable (name,Some(expr.PrimaryExpr e))) -> let value, ctx' = evalExpression (PrimaryExpr e) ctx
+                                                                                  value, define name value ctx'  
+                        | Some( Stmt.Variable (name,Some(expr.UnaryExpr e))) ->     let value, ctx' = evalExpression (UnaryExpr e) ctx
+                                                                                    value, define name value ctx'  
+                        | Some( Stmt.Variable (name,Some(expr.BinaryExpr e))) ->    let value, ctx' = evalExpression (BinaryExpr e) ctx 
+                                                                                    value, define name value ctx'  
+                        | Some( Stmt.Variable (name,Some(expr.GroupingExpr e))) ->  let value, ctx' = evalExpression (GroupingExpr e) ctx
+                                                                                    value, define name value ctx'  
 #if OLD
                         // TBD Why can't I use Some(expr.Expression e) instead of 4 lines above???
                         | Some( Variable (name,Some(expr.Expression e))) -> evalExpression( e)
@@ -181,7 +197,7 @@ let rec execStatements( statements:Stmt option list) ctx =
         
 let interpret (statements:Stmt option list) : unit = 
     try
-        let ctx = initInterpreterContext
+        let ctx = initEnvironment
         let ctx' = execStatements statements ctx
         ()
     with 

@@ -7,9 +7,8 @@ open Interpreter
 
 let run source =
     let tokens = scan source
-    //printfn "%A" tokens
-    
     try
+        //printfn "%A" tokens
         let statementList = parse tokens
         //printfn "%A" statementList
         interpret statementList
