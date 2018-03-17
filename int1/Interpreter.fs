@@ -15,29 +15,35 @@ let runtimeError m =
 type Environment =
     {
     values: Map<string,Literal>;
+    enclosing: Environment option;
     }
 
-let initEnvironment =
+let initEnvironment enclosing =
     {
     values = [] |> Map.ofSeq
+    enclosing = enclosing
     }
 
-let lookup (name:identifier_terminal) ctx = 
+let rec lookup (name:identifier_terminal) ctx = 
     // In the book, this took a TOKEN, but I think this is better.
     if( not (ctx.values.ContainsKey name.name) )then
-        let msg = sprintf "Undefined variable in lookup: %s" name.name
-        failwith msg
+        match ctx.enclosing with
+        | Some( env) ->  lookup name env
+        | None ->   let msg = sprintf "Undefined variable in lookup: %s" name.name
+                    failwith msg
     else 
         (ctx.values.Item name.name, ctx)
 
 
  
-let assign (name:identifier_terminal) (value:Literal) ctx =
+let rec assign (name:identifier_terminal) (value:Literal) ctx =
     if ctx.values.ContainsKey name.name then
         { ctx with values = ctx.values.Add( name.name, value)
         }
     else
-        failwith (sprintf "Undefined variable in assign: %s." name.name)
+        match ctx.enclosing with
+        | None -> failwith (sprintf "Undefined variable in assign: %s." name.name)
+        | Some( env) -> assign name value env
 
 let define (name:identifier_terminal) value ctx =
     { ctx with values = ctx.values.Add ( name.name, value )
@@ -180,39 +186,42 @@ let toString lit =
                     | NIL -> "NIL"
     result
 
-let rec execStatements( statements:Stmt option list) ctx =
+
+let rec execStatements( statements:Stmt list) ctx : Literal * Environment =
     match statements with
-    | [] -> ()
+    | [] -> NIL, ctx
     | s :: xs -> 
         let result, ctx' = match s with 
-                        | None -> NIL, ctx
-                        | Some( Stmt.Expression e) -> evalExpression e ctx
-                        | Some( Stmt.Print p) -> evalExpression p ctx
-                        | Some( Stmt.Variable (name,None)) -> NIL, ctx
-                        | Some( Stmt.Variable (name,Some(expr.PrimaryExpr e))) -> let value, ctx' = evalExpression (PrimaryExpr e) ctx
-                                                                                  value, define name value ctx'  
-                        | Some( Stmt.Variable (name,Some(expr.UnaryExpr e))) ->     let value, ctx' = evalExpression (UnaryExpr e) ctx
-                                                                                    value, define name value ctx'  
-                        | Some( Stmt.Variable (name,Some(expr.BinaryExpr e))) ->    let value, ctx' = evalExpression (BinaryExpr e) ctx 
-                                                                                    value, define name value ctx'  
-                        | Some( Stmt.Variable (name,Some(expr.GroupingExpr e))) ->  let value, ctx' = evalExpression (GroupingExpr e) ctx
-                                                                                    value, define name value ctx'  
-                        | Some( Stmt.Variable (name,Some(expr.AssignExpr e))) ->  let value, ctx' = evalExpression (AssignExpr e) ctx
-                                                                                  value, define name value ctx'  
+                            | Stmt.Expression e -> evalExpression e ctx
+                            | Stmt.Print p -> evalExpression p ctx
+                            | Stmt.Variable (name,None) -> NIL, ctx
+                            | Stmt.Variable (name,Some(expr.PrimaryExpr e)) -> let value, ctx' = evalExpression (PrimaryExpr e) ctx
+                                                                               value, define name value ctx'  
+                            | Stmt.Variable (name,Some(expr.UnaryExpr e)) ->     let value, ctx' = evalExpression (UnaryExpr e) ctx
+                                                                                 value, define name value ctx'  
+                            | Stmt.Variable (name,Some(expr.BinaryExpr e)) ->    let value, ctx' = evalExpression (BinaryExpr e) ctx 
+                                                                                 value, define name value ctx'  
+                            | Stmt.Variable (name,Some(expr.GroupingExpr e)) ->  let value, ctx' = evalExpression (GroupingExpr e) ctx
+                                                                                 value, define name value ctx'  
+                            | Stmt.Variable (name,Some(expr.AssignExpr e)) ->  let value, ctx' = evalExpression (AssignExpr e) ctx
+                                                                               value, define name value ctx'  
+                            | Stmt.Block stms ->    // Exec more statements in child context.
+                                                    let childEnv = { ctx with enclosing = Some(ctx) }
+                                                    execStatements stms childEnv 
+
 #if OLD
                         // TBD Why can't I use Some(expr.Expression e) instead of 4 lines above???
                         | Some( Variable (name,Some(expr.Expression e))) -> evalExpression( e)
 #endif
-
+        // TODO: Remove this if you don't want to print intermediate results.
         printfn "%s" (toString result) |> ignore
-        let ctx'' = execStatements xs ctx'
-        ctx''
-
+        execStatements xs ctx'
+        
 
         
-let interpret (statements:Stmt option list) : unit = 
+let interpret (statements:Stmt list) : unit = 
     try
-        let ctx = initEnvironment
+        let ctx = initEnvironment None
         let ctx' = execStatements statements ctx
         ()
     with 

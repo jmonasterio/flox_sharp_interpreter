@@ -131,7 +131,9 @@ type expression = equality
 type Stmt =
     | Expression of expr
     | Print of expr
-    | Variable of identifier_terminal * Option<expr> // name * initializer
+    | Variable of identifier_terminal * Option<expr> // name * initializer  <- // TBD: Not in book.
+    | Block of Stmt list
+
    
 #if FALSE
 let (^^) p q = not(p && q) && (p || q) // makeshift xor operator
@@ -197,14 +199,17 @@ let rec prettyPrint (e:expr)  =
                                                         | NEGATIVE -> printf "-"
                                 | PRIMARY p -> prettyPrint (PrimaryExpr p)
         | PrimaryExpr e -> match e with 
-                            | NUMBER n-> printfn "%A" n.value
-                            | STRING s -> printfn "%A" s.value
+                            | NUMBER n-> printfn "%f" n.value
+                            | STRING s -> printfn "%s" s.value
                             | BOOL b -> printfn "%A" b.value
                             | NIL -> printfn "NIL"
-                            | IDENTIFIER ii -> failwith "not implemented"
+                            | IDENTIFIER ii -> printfn "%s" ii.name
         | GroupingExpr e ->    printf "("
                                prettyPrint e
                                printf ")"
+        | AssignExpr e -> let name,value =e
+                          printfn  "var %s =" name.name 
+                          prettyPrint value
         //| _ -> failwith "Not expected."
 
 
@@ -492,13 +497,10 @@ let printStatement ctx =
     let (ctx', value) = expression ctx
     let ctx', token = consume ctx' SEMICOLON "Expected ';' after value."
     ctx', Print value
+ 
     
-let statement ctx =
-    let ctx', matchedToken = matchParser ctx [PRINT]
-    let ctx', stm = match matchedToken with
-                                    | Some(token) -> printStatement ctx'
-                                    | None -> expressionStatement ctx'
-    (ctx', stm)
+
+
 
 let varDeclaration ctx =
     let ctx', name = consume ctx TokenType.IDENTIFIER "Expect variable name."
@@ -511,7 +513,9 @@ let varDeclaration ctx =
     (ctx'''', Variable ( { name = name.lexeme}, initializer ) ) // TBD: name.literal???
     
 
-let declaration ctx = 
+
+
+let rec declaration ctx = 
     try
         let ctx', matchedToken = matchParser ctx [VAR]
         let ctx'', dec = match matchedToken with
@@ -522,19 +526,40 @@ let declaration ctx =
         _ -> let ctx'' = synchronize ctx
              (ctx'', None)
 
+and block ctx  =
+    let rec addStatements ctx (statements: Stmt list) =
+        if not (isAtEnd ctx) && not (check ctx TokenType.RIGHT_BRACE) then
+            match (declaration ctx) with 
+            | ctx', Some(statement) -> addStatements ctx' ( statement :: statements  )
+            | ctx', None -> ctx', statements
+        else
+            ctx, statements
+
+    let ctx', statements = addStatements ctx []
+    let ctx'', token = consume ctx' RIGHT_BRACE "Except '}' after expression."
+    ctx'', Block statements
+
+
+and statement ctx   =
+    let ctx', matchedToken = matchParser ctx [PRINT;LEFT_BRACE]
+    match matchedToken with
+    | Some(token) -> match token.tokenType with 
+                        | TokenType.PRINT -> printStatement ctx'
+                        | TokenType.LEFT_BRACE ->  block ctx' 
+    | None -> expressionStatement ctx'
+
 let parse tokens = 
     let ctx = initParserContext tokens
 
-    let rec parseStatements (ctx:ParserContext) (listOfStatements:Stmt option list) =
+    let rec parseStatements (ctx:ParserContext) (listOfStatements:Stmt list) =
         if not( isAtEnd ctx) then
             let ctx', s = declaration ctx
             let ctx'', xs = match s with 
-                | Some(s') -> (ctx', Some(s') :: listOfStatements)
-                | None -> ctx', listOfStatements // Happens after a synchronize.
+                            | Some(s') -> (ctx', s' :: listOfStatements)
+                            | None -> ctx', listOfStatements // Happens after a synchronize.
             parseStatements ctx'' xs
         else
-            (ctx, listOfStatements)
-
+            (ctx, List.rev listOfStatements)
 
     let (ctx', statements) = parseStatements ctx []
-    List.rev statements
+    statements

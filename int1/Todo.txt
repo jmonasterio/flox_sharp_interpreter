@@ -1,4 +1,4 @@
-﻿print 1; print 2; // doesn't work.
+﻿in interpreter, the ctx should be env
 
 previous should just be remembered in the context
 Book design had a thing called a literal expr.
