@@ -187,27 +187,41 @@ let toString lit =
     result
 
 
+
+// Implements the VISITOR pattern from book.
 let rec execStatements( statements:Stmt list) ctx : Literal * Environment =
+    let rec execSingleStatement statement ctx =
+            match statement with 
+                                | Stmt.Expression e -> evalExpression e ctx
+                                | Stmt.Print p -> evalExpression p ctx
+                                | Stmt.Variable (name,None) -> NIL, ctx
+                                | Stmt.Variable (name,Some(expr.PrimaryExpr e)) -> let value, ctx' = evalExpression (PrimaryExpr e) ctx
+                                                                                   value, define name value ctx'  
+                                | Stmt.Variable (name,Some(expr.UnaryExpr e)) ->     let value, ctx' = evalExpression (UnaryExpr e) ctx
+                                                                                     value, define name value ctx'  
+                                | Stmt.Variable (name,Some(expr.BinaryExpr e)) ->    let value, ctx' = evalExpression (BinaryExpr e) ctx 
+                                                                                     value, define name value ctx'  
+                                | Stmt.Variable (name,Some(expr.GroupingExpr e)) ->  let value, ctx' = evalExpression (GroupingExpr e) ctx
+                                                                                     value, define name value ctx'  
+                                | Stmt.Variable (name,Some(expr.AssignExpr e)) ->  let value, ctx' = evalExpression (AssignExpr e) ctx
+                                                                                   value, define name value ctx'  
+                                | Stmt.Block stms ->    // Exec more statements in child context. (TBD This is much nicer than book!)
+                                                        let childEnv = { ctx with enclosing = Some(ctx) }
+                                                        execStatements stms childEnv 
+                                | Stmt.If (condition,thenExpr,elseExpr) -> let lit, ctx' = evalExpression condition ctx
+                                                                           if isTruthy lit then
+                                                                               execSingleStatement thenExpr ctx'
+                                                                           else
+                                                                               match elseExpr with
+                                                                               | Some(expr) -> execSingleStatement expr ctx'
+                                                                               | None -> NIL, ctx'
+
     match statements with
     | [] -> NIL, ctx
     | s :: xs -> 
-        let result, ctx' = match s with 
-                            | Stmt.Expression e -> evalExpression e ctx
-                            | Stmt.Print p -> evalExpression p ctx
-                            | Stmt.Variable (name,None) -> NIL, ctx
-                            | Stmt.Variable (name,Some(expr.PrimaryExpr e)) -> let value, ctx' = evalExpression (PrimaryExpr e) ctx
-                                                                               value, define name value ctx'  
-                            | Stmt.Variable (name,Some(expr.UnaryExpr e)) ->     let value, ctx' = evalExpression (UnaryExpr e) ctx
-                                                                                 value, define name value ctx'  
-                            | Stmt.Variable (name,Some(expr.BinaryExpr e)) ->    let value, ctx' = evalExpression (BinaryExpr e) ctx 
-                                                                                 value, define name value ctx'  
-                            | Stmt.Variable (name,Some(expr.GroupingExpr e)) ->  let value, ctx' = evalExpression (GroupingExpr e) ctx
-                                                                                 value, define name value ctx'  
-                            | Stmt.Variable (name,Some(expr.AssignExpr e)) ->  let value, ctx' = evalExpression (AssignExpr e) ctx
-                                                                               value, define name value ctx'  
-                            | Stmt.Block stms ->    // Exec more statements in child context.
-                                                    let childEnv = { ctx with enclosing = Some(ctx) }
-                                                    execStatements stms childEnv 
+        let result, ctx' = execSingleStatement s ctx
+                                                                       
+
 
 #if OLD
                         // TBD Why can't I use Some(expr.Expression e) instead of 4 lines above???

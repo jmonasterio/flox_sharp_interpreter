@@ -1,4 +1,6 @@
-﻿in interpreter, the ctx should be env
+﻿expr.AssignExpr is lame. evalExpression should never change the value of the environment. Only a statement should do that.
+
+in interpreter, the ctx should be env
 
 previous should just be remembered in the context
 Book design had a thing called a literal expr.

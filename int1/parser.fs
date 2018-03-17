@@ -129,10 +129,11 @@ type expression = equality
 #endif
 
 type Stmt =
-    | Expression of expr
+    | Expression of expr // Just evaluates to a value, and then is ignored.
     | Print of expr
     | Variable of identifier_terminal * Option<expr> // name * initializer  <- // TBD: Not in book.
     | Block of Stmt list
+    | If of expr * Stmt * Stmt option // condition  thenBranch  elseBranch
 
    
 #if FALSE
@@ -510,7 +511,7 @@ let varDeclaration ctx =
                                                                  newCtx, Some(ex)
                                                 | None -> ctx'', None
     let ctx'''', semi = consume ctx''' TokenType.SEMICOLON "Expect ';' after variable declaration."
-    (ctx'''', Variable ( { name = name.lexeme}, initializer ) ) // TBD: name.literal???
+    (ctx'''', Variable ( { name = name.lexeme}, initializer ) ) // TBD: name.literal??? or IDENTIFIER name.lexeme
     
 
 
@@ -541,12 +542,24 @@ and block ctx  =
 
 
 and statement ctx   =
-    let ctx', matchedToken = matchParser ctx [PRINT;LEFT_BRACE]
+    let ctx', matchedToken = matchParser ctx [PRINT;LEFT_BRACE;IF]
     match matchedToken with
     | Some(token) -> match token.tokenType with 
                         | TokenType.PRINT -> printStatement ctx'
                         | TokenType.LEFT_BRACE ->  block ctx' 
+                        | TokenType.IF -> ifStatement ctx'
     | None -> expressionStatement ctx'
+
+and ifStatement ctx =
+    // TBD: Chain this together better.
+    let ctx', token = consume ctx LEFT_PAREN "Except '(' after 'if'."
+    let ctx'', condition = expression ctx'
+    let ctx''', token = consume ctx'' RIGHT_PAREN "Except ')' after 'if' condition."
+    let ctx'''',thenBranch = statement ctx'''
+    match matchParser ctx'''' [ELSE] with
+    | newCtx, Some(token) -> let lastCtx,elseBranch = statement newCtx
+                             lastCtx, If (condition, thenBranch, Some(elseBranch))
+    | lastCtx, None -> lastCtx, If (condition, thenBranch, None)
 
 let parse tokens = 
     let ctx = initParserContext tokens
