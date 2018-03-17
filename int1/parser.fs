@@ -194,6 +194,7 @@ let rec prettyPrint (e:expr)  =
                             | STRING s -> printfn "%A" s.value
                             | BOOL b -> printfn "%A" b.value
                             | NIL -> printfn "NIL"
+                            | IDENTIFIER ii -> failwith "not implemented"
         | GroupingExpr e ->    printf "("
                                prettyPrint e
                                printf ")"
@@ -206,8 +207,6 @@ type ParserContext = {
     tokens: Scanner.Token list
     hadError: bool
     }
-
-type Context = ParserContext * expr
 
 let initParserContext tokens =
     let newCtx = {
@@ -480,9 +479,9 @@ let varDeclaration ctx =
     let ctx', name = consume ctx TokenType.IDENTIFIER "Expect variable name."
     let ctx'', matchedToken = matchParser ctx' [EQUAL]
     let ctx''', (initializer:expr option) = match matchedToken with
-                                        | Some(token) -> let newCtx, ex = expression ctx''
-                                                         newCtx, Some(ex)
-                                        | None -> ctx'', None
+                                                | Some(token) -> let newCtx, ex = expression ctx''
+                                                                 newCtx, Some(ex)
+                                                | None -> ctx'', None
     let ctx'''', semi = consume ctx''' TokenType.SEMICOLON "Expect ';' after variable declaration."
     (ctx'''', Variable ( { name = name.lexeme}, initializer ) ) // TBD: name.literal???
     
