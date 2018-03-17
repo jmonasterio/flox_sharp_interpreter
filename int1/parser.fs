@@ -35,9 +35,12 @@ type oneOrNone<'t> = Option<'t>
 #endif
 
 // Operators
+
+//type assignment_operator = 
+//    | EQUALS // Probably not in this group. TDB: Different from book.
+
 type equal_operator =
     | EQUAL_EQUAL
-    | EQUALS // Probably not in this group.
     | NOT_EQUALS
 
 type comparison_operator =
@@ -63,6 +66,7 @@ type binary_operator =
     | COMPARISON_OP of comparison_operator
     | MULTIPLY_OP of mul_operator
     | ADD_OP of add_operator
+//    | ASSIGNMENT_OP of assignment_operator
 
 // Grammar
 
@@ -95,6 +99,8 @@ type expr =
     | PrimaryExpr of primary
     | BinaryExpr of binary
     | GroupingExpr of grouping
+    | AssignExpr of assign
+
     //| Expression of expr
 and binary = expr * binary_operator * expr // Left/Operator/Right   <- binary_operator different from book.
 and grouping = expr
@@ -108,6 +114,7 @@ and primary =
 and unary = 
     | UNARY of unary_operator * expr // TBD: Does not match book.
     | PRIMARY of primary // <-- Without this we never "FINISH".
+and assign = (identifier_terminal * expr) // name * value  // TBD: Book used a token instead of identifier terminal
 #if OLD
 and multiplication = unary * zeroOrMore< mul_operator * unary>
 
@@ -288,7 +295,7 @@ let consume ctx tokenType message =
 let makeBinaryOp token : binary_operator =
     match token.tokenType with
     | TokenType.EQUAL_EQUAL -> EQUALITY_OP EQUAL_EQUAL
-    | TokenType.EQUAL -> EQUALITY_OP EQUALS
+    //| TokenType.EQUAL -> EQUALITY_OP EQUALS
     | TokenType.BANG_EQUAL -> EQUALITY_OP NOT_EQUALS
     | TokenType.LESS -> COMPARISON_OP LT
     | TokenType.LESS_EQUAL -> COMPARISON_OP LTE
@@ -361,8 +368,8 @@ and unary ctx : ParserContext* expr   =
             newCtx, result
         | _ -> failwith "Invalid unary operator"
 
-    | _, None ->
-        primary ctx
+    | ctx', None ->
+        primary ctx'
 
 and moreBinary lstTokens (ctx,ex1)  =
     match matchParser ctx lstTokens with
@@ -424,10 +431,28 @@ and comparison ctx =
     addition ctx |> moreBinary  [GREATER; GREATER_EQUAL; LESS; LESS_EQUAL]
     
 and equality ctx =
-    comparison ctx |> moreBinary [BANG_EQUAL; TokenType.EQUAL_EQUAL; TokenType.EQUAL]
+    comparison ctx |> moreBinary [BANG_EQUAL; TokenType.EQUAL_EQUAL]
+
+and assignment ctx =
+    let ctx', ex = equality ctx
+    let isMatched = matchParser ctx' [TokenType.EQUAL]
+    match isMatched with
+        | ctx'', Some(token) ->
+            let ctx''', value = assignment ctx'' // Recursive
+            match ex with
+            | PrimaryExpr p ->
+                match p with
+                | IDENTIFIER ii -> 
+                    ctx''', AssignExpr (ii, value)
+            | _ ->  let equals = previous ctx'' // This gets printed on error.
+                    failwith (sprintf "Invalid assignment target %A" equals)
+
+        | ctx'', None ->
+            (ctx'', ex)
+
 
 and expression ctx = // This is weirdo.
-    equality ctx
+    assignment ctx
 
 let synchronize ctx =
     

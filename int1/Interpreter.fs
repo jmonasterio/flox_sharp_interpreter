@@ -22,16 +22,26 @@ let initEnvironment =
     values = [] |> Map.ofSeq
     }
 
+let lookup (name:identifier_terminal) ctx = 
+    // In the book, this took a TOKEN, but I think this is better.
+    if( not (ctx.values.ContainsKey name.name) )then
+        let msg = sprintf "Undefined variable in lookup: %s" name.name
+        failwith msg
+    else 
+        (ctx.values.Item name.name, ctx)
+
+
+ 
+let assign (name:identifier_terminal) (value:Literal) ctx =
+    if ctx.values.ContainsKey name.name then
+        { ctx with values = ctx.values.Add( name.name, value)
+        }
+    else
+        failwith (sprintf "Undefined variable in assign: %s." name.name)
+
 let define (name:identifier_terminal) value ctx =
     { ctx with values = ctx.values.Add ( name.name, value )
     }
-
-let get (name:identifier_terminal) ctx = // In the book, this took a TOKEN, but I think this is better.
-    if not (ctx.values.ContainsKey name.name) then
-        let msg = sprintf "Undefined variable %A" name.name
-        failwith msg
-    ctx.values.Item name.name
-   
 
 
 let CNUMBER value : float =
@@ -124,6 +134,9 @@ let rec evalExpression (e:expr) ctx = //: (Literal, InterpreterContext) =
                                                                 prettyPrint (UnaryExpr un)
                                                 | ZERO -> ()
 #endif
+        | AssignExpr e ->       let name,ex = e
+                                let value, ctx' = evalExpression ex ctx
+                                value, assign name value ctx'
         | BinaryExpr e ->       let left,op,right = e
                                 let leftValue, ctx' = evalExpression left ctx
                                 let rightValue, ctx'' = evalExpression right ctx'
@@ -141,7 +154,7 @@ let rec evalExpression (e:expr) ctx = //: (Literal, InterpreterContext) =
                                 | COMPARISON_OP GTE -> BOOL( CNUMBER leftValue >= CNUMBER rightValue), ctx''
                                 | EQUALITY_OP NOT_EQUALS -> BOOL( not( isEqual leftValue rightValue)), ctx''
                                 | EQUALITY_OP EQUAL_EQUAL -> BOOL (isEqual leftValue rightValue), ctx''
-                                | _ -> runtimeError "Unsupported operator: %A" op
+                                //| _ -> runtimeError ( sprintf" Unsupported operator: %A" op)
         | UnaryExpr e ->        match e with 
                                 | UNARY (op,right) ->   let rv, ctx' = evalExpression right ctx
                                                         let lit = match op with
@@ -154,17 +167,17 @@ let rec evalExpression (e:expr) ctx = //: (Literal, InterpreterContext) =
                             | Parser.STRING s -> STRING s.value, ctx
                             | Parser.BOOL b -> BOOL b.value, ctx
                             | Parser.NIL -> NIL, ctx
-                            | Parser.IDENTIFIER i -> (get i ctx), ctx // TBD IDENTIFIER i.name
+                            | Parser.IDENTIFIER i -> lookup i ctx
                             | Parser.THIS -> NUMBER 0.0, ctx // TBD
         | GroupingExpr e ->    evalExpression e ctx
         //| _ -> failwith "Unexpected expression."
 
 let toString lit =
     let result = match lit with
-    | NUMBER n -> string n
-    | STRING s -> s
-    | BOOL b -> string b
-    | NIL -> "NIL"
+                    | NUMBER n -> string n
+                    | STRING s -> s
+                    | BOOL b -> string b
+                    | NIL -> "NIL"
     result
 
 let rec execStatements( statements:Stmt option list) ctx =
@@ -184,6 +197,8 @@ let rec execStatements( statements:Stmt option list) ctx =
                                                                                     value, define name value ctx'  
                         | Some( Stmt.Variable (name,Some(expr.GroupingExpr e))) ->  let value, ctx' = evalExpression (GroupingExpr e) ctx
                                                                                     value, define name value ctx'  
+                        | Some( Stmt.Variable (name,Some(expr.AssignExpr e))) ->  let value, ctx' = evalExpression (AssignExpr e) ctx
+                                                                                  value, define name value ctx'  
 #if OLD
                         // TBD Why can't I use Some(expr.Expression e) instead of 4 lines above???
                         | Some( Variable (name,Some(expr.Expression e))) -> evalExpression( e)

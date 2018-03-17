@@ -83,12 +83,12 @@
             
    
  
-    let addTokenOptionalEqual ctx source tokenType tokenTypeWithEqual = 
+    let addTokenOptionalEqual ctx source tokenType tokenTypeWithEqual lexeme = 
         let (matched,newctx) = matchChar ctx source '='
         if matched then
-            addTokenWithLiteral newctx tokenTypeWithEqual None
+            addTokenWithLiteral newctx tokenTypeWithEqual None (lexeme+"=")
         else
-            addTokenWithLiteral newctx tokenType None
+            addTokenWithLiteral newctx tokenType None lexeme
 
 
     let report line where message =
@@ -233,10 +233,10 @@
             | '+' -> addToken ctx PLUS "+"
             | ';' -> addToken ctx SEMICOLON ";"
             | '*' -> addToken ctx STAR "*"
-            | '!' -> addTokenOptionalEqual ctx source BANG BANG_EQUAL "!="
-            | '=' -> addTokenOptionalEqual ctx source EQUAL EQUAL_EQUAL "=="
-            | '<' -> addTokenOptionalEqual ctx source LESS LESS_EQUAL "<="
-            | '>' -> addTokenOptionalEqual ctx source GREATER GREATER_EQUAL ">="
+            | '!' -> addTokenOptionalEqual ctx source BANG BANG_EQUAL "!"
+            | '=' -> addTokenOptionalEqual ctx source EQUAL EQUAL_EQUAL "="
+            | '<' -> addTokenOptionalEqual ctx source LESS LESS_EQUAL "<"
+            | '>' -> addTokenOptionalEqual ctx source GREATER GREATER_EQUAL ">"
             | '/' -> let (matched, newctx) = matchChar ctx source '/' 
                      if  matched then
                         consumeUntilEndOfLine newctx source
