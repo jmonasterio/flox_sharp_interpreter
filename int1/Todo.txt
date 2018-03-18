@@ -1,4 +1,6 @@
-﻿expr.AssignExpr is lame. evalExpression should never change the value of the environment. Only a statement should do that.
+﻿test with a file.
+
+expr.AssignExpr is lame. evalExpression should never change the value of the environment. Only a statement should do that.
 
 in interpreter, the ctx should be env
 

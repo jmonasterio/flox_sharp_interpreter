@@ -68,6 +68,10 @@ type binary_operator =
     | ADD_OP of add_operator
 //    | ASSIGNMENT_OP of assignment_operator
 
+type logical_operator =
+    | AND
+    | OR
+
 // Grammar
 
 
@@ -100,9 +104,11 @@ type expr =
     | BinaryExpr of binary
     | GroupingExpr of grouping
     | AssignExpr of assign
+    | LogicalExpr of logical
 
     //| Expression of expr
 and binary = expr * binary_operator * expr // Left/Operator/Right   <- binary_operator different from book.
+and logical = expr * logical_operator * expr // Left/Operator/Right   <- logical_operator different from book.
 and grouping = expr
 and primary = 
     | NUMBER of number_terminal 
@@ -205,12 +211,17 @@ let rec prettyPrint (e:expr)  =
                             | BOOL b -> printfn "%A" b.value
                             | NIL -> printfn "NIL"
                             | IDENTIFIER ii -> printfn "%s" ii.name
+                            | THIS -> printfn "THIS"
         | GroupingExpr e ->    printf "("
                                prettyPrint e
                                printf ")"
         | AssignExpr e -> let name,value =e
                           printfn  "var %s =" name.name 
                           prettyPrint value
+        | LogicalExpr e ->      let left,op,right = e
+                                prettyPrint left
+                                printfn "%A" op
+                                prettyPrint right
         //| _ -> failwith "Not expected."
 
 
@@ -298,6 +309,14 @@ let consume ctx tokenType message =
         failwith message
 
 // Book did not have this concept.
+let makeLogicalOp token : logical_operator =
+    match token.tokenType with
+    | TokenType.AND -> AND
+    | TokenType.OR -> OR
+    | _ -> failwith (sprintf "Unexpected logical operator: %A" token.tokenType)
+
+
+// Book did not have this concept.
 let makeBinaryOp token : binary_operator =
     match token.tokenType with
     | TokenType.EQUAL_EQUAL -> EQUALITY_OP EQUAL_EQUAL
@@ -377,35 +396,40 @@ and unary ctx : ParserContext* expr   =
     | ctx', None ->
         primary ctx'
 
+and moreLogical lstTokens parentFunc (ctx, ex1) =
+     //let ctx', expr = parentFunc ctx
+     let ctx' = ctx
+
+     match matchParser ctx' lstTokens with
+     | ctx'', Some(matchedToken) ->  let ctx''', right = parentFunc ctx''
+                                     let opLogical = makeLogicalOp matchedToken
+                                     let expr2 = LogicalExpr (ex1, opLogical, right)
+                                     moreLogical lstTokens parentFunc (ctx''', expr2)
+     | ctx'', None ->
+        ctx'', ex1
+
 and moreBinary lstTokens (ctx,ex1)  =
     match matchParser ctx lstTokens with
     | ctx', Some(matchedToken) ->
-        let tokOp = previous ctx' // Do we ever use answer?
-        let ctx', (un:expr) = expression ctx'
-#if OLD
-        let expr2 = BinaryExpr (ex1, tokOp, un )
-        newCtx, expr2
-#else
-        let opBinary = makeBinaryOp tokOp
-        match un with 
-        | UnaryExpr u ->match u with 
-                        | PRIMARY p -> 
-                            // Stop recursion
-                            let expr2 = BinaryExpr (ex1, opBinary, PrimaryExpr p )
-                            moreBinary lstTokens (ctx', expr2) 
-                            //newCtx, expr2
-                        | UNARY (op,exprRight) -> 
-                            // Recurse
-                            let unRight = UnaryExpr (UNARY (op, exprRight))
-                            let expr2 = BinaryExpr (ex1, opBinary, unRight )
-                            moreBinary lstTokens (ctx', expr2) 
-        | PrimaryExpr p -> let expr2 = BinaryExpr( ex1, opBinary, PrimaryExpr p) // This case needed because primary() function can return lots of things.
-                           moreBinary lstTokens (ctx', expr2) 
-        | GroupingExpr g -> let expr2 = BinaryExpr( ex1, opBinary, GroupingExpr g)
-                            moreBinary lstTokens (ctx', expr2) 
-        | BinaryExpr b -> moreBinary lstTokens (ctx', BinaryExpr( ex1, opBinary, BinaryExpr b))
+        let opBinary = makeBinaryOp matchedToken
+        match expression ctx' with 
+        | ctx', UnaryExpr u ->match u with 
+                                        | PRIMARY p -> 
+                                            // Stop recursion
+                                            let expr2 = BinaryExpr (ex1, opBinary, PrimaryExpr p )
+                                            moreBinary lstTokens (ctx', expr2) 
+                                            //newCtx, expr2
+                                        | UNARY (op,exprRight) -> 
+                                            // Recurse
+                                            let unRight = UnaryExpr (UNARY (op, exprRight))
+                                            let expr2 = BinaryExpr (ex1, opBinary, unRight )
+                                            moreBinary lstTokens (ctx', expr2) 
+        | ctx', PrimaryExpr p -> let expr2 = BinaryExpr( ex1, opBinary, PrimaryExpr p) // This case needed because primary() function can return lots of things.
+                                 moreBinary lstTokens (ctx', expr2) 
+        | ctx', GroupingExpr g ->   let expr2 = BinaryExpr( ex1, opBinary, GroupingExpr g)
+                                    moreBinary lstTokens (ctx', expr2) 
+        | ctx', BinaryExpr b -> moreBinary lstTokens (ctx', BinaryExpr( ex1, opBinary, BinaryExpr b))
         | _ -> failwith "did not expect any other kind of exprssion"
-#endif
     | ctx', None ->
         ctx', ex1
 
@@ -439,8 +463,14 @@ and comparison ctx =
 and equality ctx =
     comparison ctx |> moreBinary [BANG_EQUAL; TokenType.EQUAL_EQUAL]
 
+and logicalAnd ctx = 
+    equality ctx |> moreLogical [TokenType.AND] equality
+
+and logicalOr ctx =
+    logicalAnd ctx |> moreLogical [TokenType.OR] logicalAnd
+
 and assignment ctx =
-    let ctx', ex = equality ctx
+    let ctx', ex = logicalOr ctx
     let isMatched = matchParser ctx' [TokenType.EQUAL]
     match isMatched with
         | ctx'', Some(token) ->
@@ -457,7 +487,7 @@ and assignment ctx =
             (ctx'', ex)
 
 
-and expression ctx = // This is weirdo.
+and expression ctx : ParserContext * expr = // This is weirdo.
     assignment ctx
 
 let synchronize ctx =

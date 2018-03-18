@@ -176,6 +176,23 @@ let rec evalExpression (e:expr) ctx = //: (Literal, InterpreterContext) =
                             | Parser.IDENTIFIER i -> lookup i ctx
                             | Parser.THIS -> NUMBER 0.0, ctx // TBD
         | GroupingExpr e ->    evalExpression e ctx
+        | LogicalExpr e -> let left,op,right = e    
+                           let leftValue, ctx' = evalExpression left ctx
+                           match op with
+                                | AND -> if not (isTruthy leftValue) then  
+                                            leftValue, ctx'
+                                         else
+                                            let rightValue, ctx'' = evalExpression right ctx'
+                                            rightValue, ctx''
+
+                                | OR -> if isTruthy leftValue then  
+                                            leftValue, ctx'
+                                        else
+                                            let rightValue, ctx'' = evalExpression right ctx'
+                                            rightValue, ctx''
+
+
+                            
         //| _ -> failwith "Unexpected expression."
 
 let toString lit =
@@ -205,6 +222,8 @@ let rec execStatements( statements:Stmt list) ctx : Literal * Environment =
                                                                                      value, define name value ctx'  
                                 | Stmt.Variable (name,Some(expr.AssignExpr e)) ->  let value, ctx' = evalExpression (AssignExpr e) ctx
                                                                                    value, define name value ctx'  
+                                | Stmt.Variable (name,Some(expr.LogicalExpr e)) ->  let value, ctx' = evalExpression (LogicalExpr e) ctx
+                                                                                    value, define name value ctx'  
                                 | Stmt.Block stms ->    // Exec more statements in child context. (TBD This is much nicer than book!)
                                                         let childEnv = { ctx with enclosing = Some(ctx) }
                                                         execStatements stms childEnv 
