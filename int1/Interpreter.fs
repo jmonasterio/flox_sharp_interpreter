@@ -205,9 +205,25 @@ let toString lit =
 
 
 
-// Implements the VISITOR pattern from book.
-let rec execStatements( statements:Stmt list) ctx : Literal * Environment =
-    let rec execSingleStatement statement ctx =
+let rec evalIf condition thenExpr elseExpr lastResult env =
+    let lit, env' = evalExpression condition env
+    if isTruthy lit then
+        execSingleStatement thenExpr lastResult env'
+    else
+        match elseExpr with
+        | Some(stmt) -> execSingleStatement stmt lastResult env'
+        | None -> lastResult, env'
+
+and evalWhile condition stmt lastResult env =
+    let conditionLiteral, env' = evalExpression condition env
+    if isTruthy conditionLiteral then
+        let lit, env'' = execSingleStatement stmt lastResult env'
+        evalWhile condition stmt lit env''
+    else
+        // Not really used, but I'd like while loop to return it's last value.
+        lastResult, env
+
+and execSingleStatement statement lastResult ctx =
             match statement with 
                                 | Stmt.Expression e -> evalExpression e ctx
                                 | Stmt.Print p -> evalExpression p ctx
@@ -227,18 +243,18 @@ let rec execStatements( statements:Stmt list) ctx : Literal * Environment =
                                 | Stmt.Block stms ->    // Exec more statements in child context. (TBD This is much nicer than book!)
                                                         let childEnv = { ctx with enclosing = Some(ctx) }
                                                         execStatements stms childEnv 
-                                | Stmt.If (condition,thenExpr,elseExpr) -> let lit, ctx' = evalExpression condition ctx
-                                                                           if isTruthy lit then
-                                                                               execSingleStatement thenExpr ctx'
-                                                                           else
-                                                                               match elseExpr with
-                                                                               | Some(expr) -> execSingleStatement expr ctx'
-                                                                               | None -> NIL, ctx'
+                                | Stmt.If (condition,thenExpr,elseExpr) -> evalIf condition thenExpr elseExpr lastResult ctx
+                                
+                                | Stmt.While (condition, stmt) ->   evalWhile condition stmt lastResult ctx
 
+
+// Implements the VISITOR pattern from book.
+// I want to keep track of the "last" result on BLOCKS and LOOPS -- jorge.
+and execStatements( statements:Stmt list) ctx : Literal * Environment =
     match statements with
     | [] -> NIL, ctx
     | s :: xs -> 
-        let result, ctx' = execSingleStatement s ctx
+        let result, ctx' = execSingleStatement s NIL ctx
                                                                        
 
 
@@ -249,8 +265,6 @@ let rec execStatements( statements:Stmt list) ctx : Literal * Environment =
         // TODO: Remove this if you don't want to print intermediate results.
         printfn "%s" (toString result) |> ignore
         execStatements xs ctx'
-        
-
         
 let interpret (statements:Stmt list) : unit = 
     try

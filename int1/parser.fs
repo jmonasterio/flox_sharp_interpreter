@@ -140,6 +140,7 @@ type Stmt =
     | Variable of identifier_terminal * Option<expr> // name * initializer  <- // TBD: Not in book.
     | Block of Stmt list
     | If of expr * Stmt * Stmt option // condition  thenBranch  elseBranch
+    | While of expr * Stmt // condition * body
 
    
 #if FALSE
@@ -572,13 +573,21 @@ and block ctx  =
 
 
 and statement ctx   =
-    let ctx', matchedToken = matchParser ctx [PRINT;LEFT_BRACE;IF]
+    let ctx', matchedToken = matchParser ctx [PRINT;LEFT_BRACE;IF;WHILE]
     match matchedToken with
     | Some(token) -> match token.tokenType with 
                         | TokenType.PRINT -> printStatement ctx'
                         | TokenType.LEFT_BRACE ->  block ctx' 
                         | TokenType.IF -> ifStatement ctx'
+                        | TokenType.WHILE -> whileStatement ctx'
     | None -> expressionStatement ctx'
+
+and whileStatement ctx = 
+    let ctx', token = consume ctx LEFT_PAREN "Expected '(' after 'while'."
+    let ctx'', condition = expression ctx'
+    let ctx''', token = consume ctx'' RIGHT_PAREN "Expected ')' after condition."
+    let ctx'''',body = statement ctx'''
+    ctx'''', While (condition, body)
 
 and ifStatement ctx =
     // TBD: Chain this together better.
