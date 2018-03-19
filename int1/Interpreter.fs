@@ -24,15 +24,15 @@ let initEnvironment enclosing =
     enclosing = enclosing
     }
 
-let rec lookup (name:identifier_terminal) ctx = 
+let rec lookup (name:identifier_terminal) env = 
     // In the book, this took a TOKEN, but I think this is better.
-    if( not (ctx.values.ContainsKey name.name) )then
-        match ctx.enclosing with
+    if( not (env.values.ContainsKey name.name) )then
+        match env.enclosing with
         | Some( env) ->  lookup name env
         | None ->   let msg = sprintf "Undefined variable in lookup: %s" name.name
                     failwith msg
     else 
-        (ctx.values.Item name.name, ctx)
+        (env.values.Item name.name, env)
 
 
  
@@ -223,29 +223,31 @@ and evalWhile condition stmt lastResult env =
         // Not really used, but I'd like while loop to return it's last value.
         lastResult, env
 
-and execSingleStatement statement lastResult ctx =
+and execSingleStatement statement lastResult env =
             match statement with 
-                                | Stmt.Expression e -> evalExpression e ctx
-                                | Stmt.Print p -> evalExpression p ctx
-                                | Stmt.Variable (name,None) -> NIL, ctx
-                                | Stmt.Variable (name,Some(expr.PrimaryExpr e)) -> let value, ctx' = evalExpression (PrimaryExpr e) ctx
+                                | Stmt.Expression e -> evalExpression e env
+                                | Stmt.Print p ->       let lit, env' = evalExpression p env
+                                                        printfn "%s" (toString ( lit))
+                                                        (lit, env')
+                                | Stmt.Variable (name,None) -> NIL, env
+                                | Stmt.Variable (name,Some(expr.PrimaryExpr e)) -> let value, ctx' = evalExpression (PrimaryExpr e) env
                                                                                    value, define name value ctx'  
-                                | Stmt.Variable (name,Some(expr.UnaryExpr e)) ->     let value, ctx' = evalExpression (UnaryExpr e) ctx
+                                | Stmt.Variable (name,Some(expr.UnaryExpr e)) ->     let value, ctx' = evalExpression (UnaryExpr e) env
                                                                                      value, define name value ctx'  
-                                | Stmt.Variable (name,Some(expr.BinaryExpr e)) ->    let value, ctx' = evalExpression (BinaryExpr e) ctx 
+                                | Stmt.Variable (name,Some(expr.BinaryExpr e)) ->    let value, ctx' = evalExpression (BinaryExpr e) env 
                                                                                      value, define name value ctx'  
-                                | Stmt.Variable (name,Some(expr.GroupingExpr e)) ->  let value, ctx' = evalExpression (GroupingExpr e) ctx
+                                | Stmt.Variable (name,Some(expr.GroupingExpr e)) ->  let value, ctx' = evalExpression (GroupingExpr e) env
                                                                                      value, define name value ctx'  
-                                | Stmt.Variable (name,Some(expr.AssignExpr e)) ->  let value, ctx' = evalExpression (AssignExpr e) ctx
+                                | Stmt.Variable (name,Some(expr.AssignExpr e)) ->  let value, ctx' = evalExpression (AssignExpr e) env
                                                                                    value, define name value ctx'  
-                                | Stmt.Variable (name,Some(expr.LogicalExpr e)) ->  let value, ctx' = evalExpression (LogicalExpr e) ctx
+                                | Stmt.Variable (name,Some(expr.LogicalExpr e)) ->  let value, ctx' = evalExpression (LogicalExpr e) env
                                                                                     value, define name value ctx'  
                                 | Stmt.Block stms ->    // Exec more statements in child context. (TBD This is much nicer than book!)
-                                                        let childEnv = { ctx with enclosing = Some(ctx) }
+                                                        let childEnv = initEnvironment( Some(env) )
                                                         execStatements stms childEnv 
-                                | Stmt.If (condition,thenExpr,elseExpr) -> evalIf condition thenExpr elseExpr lastResult ctx
+                                | Stmt.If (condition,thenExpr,elseExpr) -> evalIf condition thenExpr elseExpr lastResult env
                                 
-                                | Stmt.While (condition, stmt) ->   evalWhile condition stmt lastResult ctx
+                                | Stmt.While (condition, stmt) ->   evalWhile condition stmt lastResult env
 
 
 // Implements the VISITOR pattern from book.
@@ -263,7 +265,7 @@ and execStatements( statements:Stmt list) ctx : Literal * Environment =
                         | Some( Variable (name,Some(expr.Expression e))) -> evalExpression( e)
 #endif
         // TODO: Remove this if you don't want to print intermediate results.
-        printfn "%s" (toString result) |> ignore
+        //printfn "%s" (toString result) |> ignore
         execStatements xs ctx'
         
 let interpret (statements:Stmt list) : unit = 
@@ -273,3 +275,6 @@ let interpret (statements:Stmt list) : unit =
         ()
     with 
     | :? System.Exception as ex -> runtimeError ex.Message
+
+
+    // FIB: var a = 0; var b = 1; while (a < 10000) {   print a;  var temp = a;  a = b;  b = temp + b;}

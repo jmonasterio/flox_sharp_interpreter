@@ -141,8 +141,9 @@ type Stmt =
     | Block of Stmt list
     | If of expr * Stmt * Stmt option // condition  thenBranch  elseBranch
     | While of expr * Stmt // condition * body
+    | ForStmt of for_statement   
+and for_statement =  Option<Stmt> * Option<expr> * Option<Stmt> * Stmt   // initializer * condition * increment * statement
 
-   
 #if FALSE
 let (^^) p q = not(p && q) && (p || q) // makeshift xor operator
 
@@ -544,8 +545,21 @@ let varDeclaration ctx =
     let ctx'''', semi = consume ctx''' TokenType.SEMICOLON "Expect ';' after variable declaration."
     (ctx'''', Variable ( { name = name.lexeme}, initializer ) ) // TBD: name.literal??? or IDENTIFIER name.lexeme
     
-
-
+// Desugar FOR loop into several statements (while loop) instead of changing interpreter.
+// This was just an example like in the book. This could be done in the Interperter
+let desugarFor (forStmt:for_statement) =
+    let initializer, conditionOption, increment, body = forStmt
+    let body' = match increment with
+                | Some(incStmt) -> Block [body; incStmt]
+                | None -> body
+    let condition:expr = match conditionOption with
+                        | Some(condition) -> condition
+                        | None -> PrimaryExpr( BOOL { value = true; })
+    let body'' = While( condition, body')
+    let body''' = match initializer with
+                     | None -> body''
+                     | Some (initializer) -> Block [initializer; body]
+    body'''                   
 
 let rec declaration ctx = 
     try
@@ -569,18 +583,48 @@ and block ctx  =
 
     let ctx', statements = addStatements ctx []
     let ctx'', token = consume ctx' RIGHT_BRACE "Except '}' after expression."
-    ctx'', Block statements
+    ctx'', Block (List.rev statements)
 
 
 and statement ctx   =
-    let ctx', matchedToken = matchParser ctx [PRINT;LEFT_BRACE;IF;WHILE]
+    let ctx', matchedToken = matchParser ctx [PRINT;LEFT_BRACE;IF;WHILE;FOR]
     match matchedToken with
     | Some(token) -> match token.tokenType with 
                         | TokenType.PRINT -> printStatement ctx'
                         | TokenType.LEFT_BRACE ->  block ctx' 
                         | TokenType.IF -> ifStatement ctx'
                         | TokenType.WHILE -> whileStatement ctx'
+                        | TokenType.FOR ->  let ctx'', (forStmt:for_statement) = forStatement ctx'
+                                            ctx'', (desugarFor forStmt)
     | None -> expressionStatement ctx'
+
+and forStatement ctx: ParserContext * for_statement  = 
+    let ctx', token = consume ctx LEFT_PAREN "Expected '(' after 'for'."
+
+    let ctx'', matchedToken = matchParser ctx [VAR;SEMICOLON]
+    let ctx2,(initializer:Option<Stmt>) = match matchedToken with
+                                            | Some(token) -> match token.tokenType with
+                                                                                    | TokenType.VAR -> let tempCtx, stm = varDeclaration ctx''
+                                                                                                       tempCtx, Some(stm)
+                                                                                    | TokenType.SEMICOLON -> ctx'', None;
+                                                                                    | _-> let tempCtx, stm = expressionStatement ctx' // IMPORTANT: Back to previous context!
+                                                                                          tempCtx, Some(stm)
+                                            | None -> failwith "Expected token after '(' in 'for'." // Not in book.
+    let condition, ctx3 = if not ( check ctx2 SEMICOLON ) then
+                                let tempCtx, exp = expression ctx2
+                                Some( exp), tempCtx
+                          else
+                                None, ctx2
+    let ctx4, token = consume ctx3 SEMICOLON "Expected ';' after loop condition."
+
+    let (increment:Option<Stmt>), ctx5 = if not ( check ctx4 RIGHT_PAREN ) then
+                                                let tempCtx, exp = statement ctx4 // BOOK Used expr for increment.
+                                                Some( exp), tempCtx
+                                         else
+                                                None, ctx4
+    let ctx6, token = consume ctx5 RIGHT_PAREN "Expected ')' after for clauses."
+    let ctx7,body = statement ctx6
+    ctx7, (initializer, condition, increment, body)
 
 and whileStatement ctx = 
     let ctx', token = consume ctx LEFT_PAREN "Expected '(' after 'while'."
