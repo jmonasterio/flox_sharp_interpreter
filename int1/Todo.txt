@@ -1,4 +1,9 @@
-﻿test with a file.
+﻿add return statement, then test nested functions with closures.
+
+use map(), etc instead of loop
+
+
+test with a file.
 
 expr.AssignExpr is lame. evalExpression should never change the value of the environment. Only a statement should do that.
 

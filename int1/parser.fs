@@ -100,17 +100,22 @@ type expr =
 #endif
     // These are outputs
     | UnaryExpr of unary 
-    | PrimaryExpr of primary
+    | PrimaryExpr of primary_expr
     | BinaryExpr of binary
     | GroupingExpr of grouping
     | AssignExpr of assign
     | LogicalExpr of logical
+    | CallExpr of calling
 
     //| Expression of expr
+
+
+// TBD: These should all be structs instead of tuples!!
+and calling = expr * expr list // called * arguments
 and binary = expr * binary_operator * expr // Left/Operator/Right   <- binary_operator different from book.
 and logical = expr * logical_operator * expr // Left/Operator/Right   <- logical_operator different from book.
 and grouping = expr
-and primary = 
+and primary_expr = 
     | NUMBER of number_terminal 
     | STRING of string_terminal
     | BOOL of boolean_terminal
@@ -119,7 +124,7 @@ and primary =
     | THIS 
 and unary = 
     | UNARY of unary_operator * expr // TBD: Does not match book.
-    | PRIMARY of primary // <-- Without this we never "FINISH".
+    | PRIMARY of primary_expr // <-- Without this we never "FINISH".
 and assign = (identifier_terminal * expr) // name * value  // TBD: Book used a token instead of identifier terminal
 #if OLD
 and multiplication = unary * zeroOrMore< mul_operator * unary>
@@ -134,15 +139,26 @@ and equality = comparison * zeroOrMore< equal_operator * comparison>
 type expression = equality
 #endif
 
+
 type Stmt =
     | Expression of expr // Just evaluates to a value, and then is ignored.
+    // TBD: All below should be PrintStmt, VarStatment, BlockStmt etc
     | Print of expr
-    | Variable of identifier_terminal * Option<expr> // name * initializer  <- // TBD: Not in book.
+    | Variable of var_statement
     | Block of Stmt list
-    | If of expr * Stmt * Stmt option // condition  thenBranch  elseBranch
-    | While of expr * Stmt // condition * body
+    | If of if_statement // * Stmt option // condition  thenBranch  elseBranch
+    | While of while_statement
     | ForStmt of for_statement   
+    | FunctionStmt of function_statement
+    | ReturnStmt of return_statement
+and return_statement = { keyword: string; value: expr; } // TBD: Book says "keyword" is so we can use it's location for error reporting.
+and while_statement = { condition: expr; body: Stmt}
+and if_statement = { condition : expr; thenBranch : Stmt; elseBranch : Stmt option }
+and function_statement = { functionName: identifier_terminal; parameters: identifier_terminal list; body: Stmt;}
+    // TBD: Would it be better if the types below were structs instead of tuples (so each part has a name).
+    // Did if_statement as an example -- a little more self documenting. The matches must still be against a tuple.
 and for_statement =  Option<Stmt> * Option<expr> * Option<Stmt> * Stmt   // initializer * condition * increment * statement
+and var_statement = identifier_terminal * Option<expr> // name * initializer  <- // TBD: Not in book.
 
 #if FALSE
 let (^^) p q = not(p && q) && (p || q) // makeshift xor operator
@@ -224,6 +240,7 @@ let rec prettyPrint (e:expr)  =
                                 prettyPrint left
                                 printfn "%A" op
                                 prettyPrint right
+        | CallExpr c -> printfn "%A" c
         //| _ -> failwith "Not expected."
 
 
@@ -377,7 +394,31 @@ let rec primary ctx =
     | None ->
         let newCtx = errorP ctx "Expect expression."
         failwith "Expect expression"
+
+
+and call ctx =
+    let ctx', ex = primary ctx
+
+    let rec addArguments ctx callee (arguments: expr list) = // TBD: Was called finishCall in book
+
+        if not (isAtEnd ctx) && not( check ctx RIGHT_PAREN) then // Different from book: Added isAtEnd()
+                    let ctx', arg = expression ctx
+
+                    match matchParser ctx' [TokenType.COMMA] with
+                    | ctx'', Some(_) -> 
+                        addArguments ctx'' callee ( arg :: arguments  )
+                    | ctx'', None -> 
+                        let ctx''', token = consume ctx'' RIGHT_PAREN "Expected ')' after arguments."
+                        ctx''', CallExpr (ex, arg :: arguments) // Another break for recursion 
+        else
+                    // No params (or end of input).
+                    let ctx', token = consume ctx RIGHT_PAREN "Expected ')' after no arguments."
+                    ctx', CallExpr (ex, arguments) // Break recursion
             
+
+    match matchParser ctx' [LEFT_PAREN] with
+    | ctx'', Some(_) ->  addArguments ctx'' ex []
+    | ctx'', None -> ctx'', ex // Expression
 
  // Have to use "AND" below because expression is circular.
 and unary ctx : ParserContext* expr   =
@@ -396,8 +437,7 @@ and unary ctx : ParserContext* expr   =
         | _ -> failwith "Invalid unary operator"
 
     | ctx', None ->
-        primary ctx'
-
+        call ctx'
 and moreLogical lstTokens parentFunc (ctx, ex1) =
      //let ctx', expr = parentFunc ctx
      let ctx' = ctx
@@ -436,21 +476,6 @@ and moreBinary lstTokens (ctx,ex1)  =
         ctx', ex1
 
 
-#if OLD
-let rec moreUnary ctx lstTokens =
-    match matchParser ctx lstTokens with
-    | true, newCtx ->
-        let tokOp, newCtx = previous newCtx
-        let newCtx, exprRight = unary newCtx
-        let expr2 = UnaryExpr (tokOp,exprRight)
-        moreUnary newCtx lstTokens
-    | false, newCtx ->
-        newCtx, primary ctx
-#endif
-
-
-
-
 //ctx,  UnaryExpr( PRIMARY (NUMBER { value = 0.0} ))
 and multiplication ctx  =
     unary ctx |> moreBinary  [TokenType.STAR;TokenType.SLASH]
@@ -482,6 +507,7 @@ and assignment ctx =
                 match p with
                 | IDENTIFIER ii -> 
                     ctx''', AssignExpr (ii, value)
+                | _ -> failwith "Unsupported"
             | _ ->  let equals = previous ctx'' // This gets printed on error.
                     failwith (sprintf "Invalid assignment target %A" equals)
 
@@ -531,10 +557,6 @@ let printStatement ctx =
     let ctx', token = consume ctx' SEMICOLON "Expected ';' after value."
     ctx', Print value
  
-    
-
-
-
 let varDeclaration ctx =
     let ctx', name = consume ctx TokenType.IDENTIFIER "Expect variable name."
     let ctx'', matchedToken = matchParser ctx' [EQUAL]
@@ -544,7 +566,12 @@ let varDeclaration ctx =
                                                 | None -> ctx'', None
     let ctx'''', semi = consume ctx''' TokenType.SEMICOLON "Expect ';' after variable declaration."
     (ctx'''', Variable ( { name = name.lexeme}, initializer ) ) // TBD: name.literal??? or IDENTIFIER name.lexeme
+
+type functionKind =
+    | FUNCTION
+    | METHOD
     
+        
 // Desugar FOR loop into several statements (while loop) instead of changing interpreter.
 // This was just an example like in the book. This could be done in the Interperter
 let desugarFor (forStmt:for_statement) =
@@ -553,20 +580,25 @@ let desugarFor (forStmt:for_statement) =
                 | Some(incStmt) -> Block [body; incStmt]
                 | None -> body
     let condition:expr = match conditionOption with
-                        | Some(condition) -> condition
-                        | None -> PrimaryExpr( BOOL { value = true; })
-    let body'' = While( condition, body')
+                            | Some(condition) -> condition
+                            | None -> PrimaryExpr( BOOL { value = true; })
+    let body'' = While( { condition = condition; body = body';} )
     let body''' = match initializer with
                      | None -> body''
                      | Some (initializer) -> Block [initializer; body]
-    body'''                   
+    body'''   
+    
+
 
 let rec declaration ctx = 
     try
-        let ctx', matchedToken = matchParser ctx [VAR]
+        let ctx', matchedToken = matchParser ctx [VAR;FUN]
         let ctx'', dec = match matchedToken with
-                                        | Some(token) -> varDeclaration ctx'
-                                        | None -> statement ctx'    
+                                                | Some(token) -> match token.tokenType with 
+                                                                                        | VAR -> varDeclaration ctx'
+                                                                                        | FUN -> functionDeclaration FUNCTION ctx'
+                                                                                        | _ -> failwith "INTERNAL: Need to machParser above."
+                                                | None -> statement ctx'    
         (ctx'', Some(dec))
     with
         _ -> let ctx'' = synchronize ctx
@@ -587,7 +619,7 @@ and block ctx  =
 
 
 and statement ctx   =
-    let ctx', matchedToken = matchParser ctx [PRINT;LEFT_BRACE;IF;WHILE;FOR]
+    let ctx', matchedToken = matchParser ctx [PRINT;LEFT_BRACE;IF;WHILE;FOR;RETURN]
     match matchedToken with
     | Some(token) -> match token.tokenType with 
                         | TokenType.PRINT -> printStatement ctx'
@@ -596,7 +628,18 @@ and statement ctx   =
                         | TokenType.WHILE -> whileStatement ctx'
                         | TokenType.FOR ->  let ctx'', (forStmt:for_statement) = forStatement ctx'
                                             ctx'', (desugarFor forStmt)
+                        | TokenType.RETURN -> returnStatement ctx'
+                        | _ -> failwith "INTERNAL: match case missing"
     | None -> expressionStatement ctx'
+
+and returnStatement ctx =
+    let keyw = previous ctx;
+    let ctx', value = if( not( check ctx SEMICOLON)) then
+                            expression ctx
+                       else
+                            ctx, PrimaryExpr( NIL)
+    let ctx'', _ = consume ctx' SEMICOLON "Expected ';' after return value."
+    ctx'', ReturnStmt ( { keyword = keyw.lexeme; value = value;})
 
 and forStatement ctx: ParserContext * for_statement  = 
     let ctx', token = consume ctx LEFT_PAREN "Expected '(' after 'for'."
@@ -631,18 +674,50 @@ and whileStatement ctx =
     let ctx'', condition = expression ctx'
     let ctx''', token = consume ctx'' RIGHT_PAREN "Expected ')' after condition."
     let ctx'''',body = statement ctx'''
-    ctx'''', While (condition, body)
+    ctx'''', While ( { condition= condition; body = body})
 
 and ifStatement ctx =
     // TBD: Chain this together better.
-    let ctx', token = consume ctx LEFT_PAREN "Except '(' after 'if'."
+    let ctx', _ = consume ctx LEFT_PAREN "Except '(' after 'if'."
     let ctx'', condition = expression ctx'
-    let ctx''', token = consume ctx'' RIGHT_PAREN "Except ')' after 'if' condition."
+    let ctx''', _ = consume ctx'' RIGHT_PAREN "Except ')' after 'if' condition."
     let ctx'''',thenBranch = statement ctx'''
     match matchParser ctx'''' [ELSE] with
-    | newCtx, Some(token) -> let lastCtx,elseBranch = statement newCtx
-                             lastCtx, If (condition, thenBranch, Some(elseBranch))
-    | lastCtx, None -> lastCtx, If (condition, thenBranch, None)
+    | newCtx, Some(_) -> let lastCtx,elseBranch = statement newCtx
+                         lastCtx, If { condition = condition;
+                                       thenBranch = thenBranch;
+                                       elseBranch = Some(elseBranch)}
+    | lastCtx, None -> lastCtx, If { condition = condition;
+                                       thenBranch = thenBranch;
+                                       elseBranch = None }
+
+// TBD: Will be reused later for methods.
+and functionDeclaration (kind:functionKind) ctx = 
+
+    let rec matchParams paramList ctx =
+        if List.length paramList >= 8 then
+            errorP ctx "Cannot have more than 8 parameters." |> ignore // TBD: Better error handling?
+            [], ctx
+        else
+            let ctx, identifier = consume ctx TokenType.IDENTIFIER "Expect parameter name."
+            let name = { name = identifier.lexeme }
+            let result = name :: paramList
+            let ctx'', matchedToken = matchParser ctx [COMMA]
+            match matchedToken with
+                                | Some(comma) -> matchParams result ctx''
+                                | _ -> (result, ctx'') // Break recursion
+
+    let ctx', token = consume ctx TokenType.IDENTIFIER (sprintf "Expect %A name." kind)
+    let name: identifier_terminal = { name = token.lexeme }
+    let ctx'', _ = consume ctx' TokenType.LEFT_PAREN (sprintf "Expect '(' after %A name." kind)
+    let parameters, ctx''' = if not( check ctx'' RIGHT_PAREN ) then
+                                matchParams [] ctx''
+                             else
+                                [], ctx''
+    let ctx4', _ = consume ctx''' TokenType.RIGHT_PAREN "Expect ')' after parameters."
+    let ctx5', _ = consume ctx4' TokenType.LEFT_BRACE (sprintf "Expect '{' before %A body." kind)
+    let ctx6', body = block ctx5' 
+    ctx6', FunctionStmt( { functionName = name; parameters = parameters; body = body} )
 
 let parse tokens = 
     let ctx = initParserContext tokens
