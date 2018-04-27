@@ -1,0 +1,8 @@
+{
+  "profiles": {
+    "int1": {
+      "commandName": "Project",
+      "commandLineArgs": "C:\\s\\int1\\int1\\tests.jlox"
+    }
+  }
+}

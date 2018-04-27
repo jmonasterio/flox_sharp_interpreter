@@ -1,12 +1,24 @@
 ﻿module Parser
 open Scanner
 open System.Linq.Expressions
+open System
+
+type UniqueId = int // System.Guid // Added by the resolver pass, later.
+type IdentifierName = string
+
+let mutable xxguid = 1000
+let newGuid() =
+    xxguid <- xxguid+1;
+    xxguid
 
 // TERMINALS
 type number_terminal = { value: float }
 type string_terminal = { value: string }
 type boolean_terminal = { value: bool }
-type identifier_terminal = { name : string }
+
+type identifier_terminal = { name : IdentifierName; guid: UniqueId }
+
+
 
 #if OLD
 //type nil_terminal = NILTERMINAL
@@ -125,7 +137,7 @@ and primary_expr =
 and unary = 
     | UNARY of unary_operator * expr // TBD: Does not match book.
     | PRIMARY of primary_expr // <-- Without this we never "FINISH".
-and assign = (identifier_terminal * expr) // name * value  // TBD: Book used a token instead of identifier terminal
+and assign = { id:identifier_terminal; value:expr; guid: UniqueId} // name * value  // TBD: Book used a token instead of identifier terminal
 #if OLD
 and multiplication = unary * zeroOrMore< mul_operator * unary>
 
@@ -151,10 +163,11 @@ type Stmt =
     | ForStmt of for_statement   
     | FunctionStmt of function_statement
     | ReturnStmt of return_statement
+    //| FunctionBody of Stmt list // Function body (not counted as block because resolver handles different
 and return_statement = { keyword: string; value: expr; } // TBD: Book says "keyword" is so we can use it's location for error reporting.
 and while_statement = { condition: expr; body: Stmt}
 and if_statement = { condition : expr; thenBranch : Stmt; elseBranch : Stmt option }
-and function_statement = { functionName: identifier_terminal; parameters: identifier_terminal list; body: Stmt;}
+and function_statement = { id: identifier_terminal; parameters: identifier_terminal list; body: Stmt; }
     // TBD: Would it be better if the types below were structs instead of tuples (so each part has a name).
     // Did if_statement as an example -- a little more self documenting. The matches must still be against a tuple.
 and for_statement =  Option<Stmt> * Option<expr> * Option<Stmt> * Stmt   // initializer * condition * increment * statement
@@ -233,9 +246,8 @@ let rec prettyPrint (e:expr)  =
         | GroupingExpr e ->    printf "("
                                prettyPrint e
                                printf ")"
-        | AssignExpr e -> let name,value =e
-                          printfn  "var %s =" name.name 
-                          prettyPrint value
+        | AssignExpr e -> printfn  "var %s =" (e.id.name)
+                          prettyPrint (e.value)
         | LogicalExpr e ->      let left,op,right = e
                                 prettyPrint left
                                 printfn "%A" op
@@ -386,7 +398,7 @@ let rec primary ctx =
             ctx', result // TBD
         | TokenType.IDENTIFIER ->
             let prevTok = (previous ctx')
-            let result = PrimaryExpr( IDENTIFIER { name = prevTok.lexeme }) // TBD: Maybe makes sense for identifier to be a literal.
+            let result = PrimaryExpr( IDENTIFIER { name = prevTok.lexeme; guid = newGuid() }) // TBD: Maybe makes sense for identifier to be a literal.
             ctx', result
         | _ -> 
             let newCtx = errorP ctx "Expect expression not in set..."
@@ -506,7 +518,7 @@ and assignment ctx =
             | PrimaryExpr p ->
                 match p with
                 | IDENTIFIER ii -> 
-                    ctx''', AssignExpr (ii, value)
+                    ctx''', AssignExpr { id = ii; value= value; guid = newGuid() }
                 | _ -> failwith "Unsupported"
             | _ ->  let equals = previous ctx'' // This gets printed on error.
                     failwith (sprintf "Invalid assignment target %A" equals)
@@ -565,7 +577,7 @@ let varDeclaration ctx =
                                                                  newCtx, Some(ex)
                                                 | None -> ctx'', None
     let ctx'''', semi = consume ctx''' TokenType.SEMICOLON "Expect ';' after variable declaration."
-    (ctx'''', Variable ( { name = name.lexeme}, initializer ) ) // TBD: name.literal??? or IDENTIFIER name.lexeme
+    (ctx'''', Variable ( { name = name.lexeme; guid = newGuid() }, initializer ) ) // TBD: name.literal??? or IDENTIFIER name.lexeme
 
 type functionKind =
     | FUNCTION
@@ -615,8 +627,22 @@ and block ctx  =
 
     let ctx', statements = addStatements ctx []
     let ctx'', token = consume ctx' RIGHT_BRACE "Except '}' after expression."
-    ctx'', Block (List.rev statements)
+    ctx'', Block( List.rev statements)
 
+#if OLD 
+and functionBody ctx  =
+    let rec addStatements ctx (statements: Stmt list) =
+        if not (isAtEnd ctx) && not (check ctx TokenType.RIGHT_BRACE) then
+            match (declaration ctx) with 
+            | ctx', Some(statement) -> addStatements ctx' ( statement :: statements  )
+            | ctx', None -> ctx', statements
+        else
+            ctx, statements
+
+    let ctx', statements = addStatements ctx []
+    let ctx'', token = consume ctx' RIGHT_BRACE "Except '}' after expression."
+    ctx'', FunctionBody (List.rev statements)
+#endif
 
 and statement ctx   =
     let ctx', matchedToken = matchParser ctx [PRINT;LEFT_BRACE;IF;WHILE;FOR;RETURN]
@@ -700,7 +726,7 @@ and functionDeclaration (kind:functionKind) ctx =
             [], ctx
         else
             let ctx, identifier = consume ctx TokenType.IDENTIFIER "Expect parameter name."
-            let name = { name = identifier.lexeme }
+            let name = { name = identifier.lexeme; guid = newGuid() }
             let result = name :: paramList
             let ctx'', matchedToken = matchParser ctx [COMMA]
             match matchedToken with
@@ -708,7 +734,7 @@ and functionDeclaration (kind:functionKind) ctx =
                                 | _ -> (result, ctx'') // Break recursion
 
     let ctx', token = consume ctx TokenType.IDENTIFIER (sprintf "Expect %A name." kind)
-    let name: identifier_terminal = { name = token.lexeme }
+    let id: identifier_terminal = { name = token.lexeme; guid = newGuid() }
     let ctx'', _ = consume ctx' TokenType.LEFT_PAREN (sprintf "Expect '(' after %A name." kind)
     let parameters, ctx''' = if not( check ctx'' RIGHT_PAREN ) then
                                 matchParams [] ctx''
@@ -716,10 +742,13 @@ and functionDeclaration (kind:functionKind) ctx =
                                 [], ctx''
     let ctx4', _ = consume ctx''' TokenType.RIGHT_PAREN "Expect ')' after parameters."
     let ctx5', _ = consume ctx4' TokenType.LEFT_BRACE (sprintf "Expect '{' before %A body." kind)
-    let ctx6', body = block ctx5' 
-    ctx6', FunctionStmt( { functionName = name; parameters = parameters; body = body} )
+    let ctx6', bodyStmt = block ctx5'  // Book did not use a BLOCK here for function body.
+    ctx6', FunctionStmt( { id = id; parameters = parameters; body = bodyStmt} )
 
 let parse tokens = 
+
+    xxguid <- 1000
+
     let ctx = initParserContext tokens
 
     let rec parseStatements (ctx:ParserContext) (listOfStatements:Stmt list) =

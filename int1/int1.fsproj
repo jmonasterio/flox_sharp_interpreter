@@ -9,11 +9,17 @@
     <Compile Include="Scanner.fs" />
     <Compile Include="Parser.fs" />
     <Compile Include="Interpreter.fs" />
+    <Compile Include="Resolver.fs" />
     <Compile Include="Main.fs" />
   </ItemGroup>
 
   <ItemGroup>
     <Content Include="Todo.txt" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <None Include="tests.jlox" />
+    <None Include="tests2.jlox" />
   </ItemGroup>
 
 </Project>

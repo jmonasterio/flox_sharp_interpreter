@@ -1,4 +1,10 @@
-﻿add return statement, then test nested functions with closures.
+﻿RESOLVE PASS + SCOPES MAP (primary_expr -> bool)  + ENVIRONMENT WITH GLOBALS + SCOPEMAP
+
+InterpreterContext
+   - ScopesMap
+   - Can I lookup an expression.
+
+then test nested functions with closures.
 
 use map(), etc instead of loop
 

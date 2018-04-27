@@ -1,9 +1,21 @@
 ﻿module Interpreter
-open Scanner
+//open Scanner
 open Parser
+
+//type UniqueId = System.Guid // Added by the resolver pass, later.
 
 let runtimeError m =
     failwith m
+
+type ResolveDistance = int
+
+type ResolveDistanceTarget = {
+    dist: ResolveDistance;
+    id: identifier_terminal; // Just here to make debugging easier.
+}
+
+
+type ScopeDistanceMap = Map<UniqueId,ResolveDistanceTarget>
 
 type decl_types = 
     | DECL of function_statement // For lox code    
@@ -16,69 +28,151 @@ type Literal =
     | NIL
     | CALL of loxCallable
 
+and LiteralMap = Map<IdentifierName,Literal>
+
+and ClosureKey = UniqueId
+and ClosureMap = Map<ClosureKey,Lazy<Environment>>
+
+and Scope =
+    {
+    values: LiteralMap; //  variable name -> literal
+    enclosing: Scope option;
+    }
+
 and Environment =
     {
-    values: Map<string,Literal>;
-    enclosing: Environment option;
-    globals: Environment;
+    localDistances: ScopeDistanceMap; // distance back from current scope to scope that has the value
+    localScopes: Scope list
+    closures: ClosureMap; // need some indirection to the closures.
+    globalScope: Scope
     }
 
 and loxCallable =
     {
         //arity: int;  // TBD: Not like in book, we just calculate this when needed.
         decl: decl_types;
-        closure: Environment;
+        closureKey: ClosureKey;
     }
+
+
+// TBD: Kinda sucks that these can't be in the resolver.
+
+let emptyMap<'K,'V when 'K : comparison >(): Map<'K,'V>  = [] |> Map.ofSeq
+
+let pushScope newScope (env:Environment) =
+    { env with localScopes = newScope :: env.localScopes }
+
+let pushNewScope (env:Environment) =
+    let newScope = { values = emptyMap(); enclosing = Some(env.localScopes.Head); }
+    pushScope newScope env
+
+let popScope env =
+    match env.localScopes with
+    | [] -> failwith "Nothing to pop!"
+    | _::rest -> { env with localScopes = rest }
+
+let findScope (id:identifier_terminal) env =
+    match env.localDistances.TryFind id.guid with
+    | Some(rdt) ->
+        let listLength = List.length env.localScopes
+        if rdt.dist < listLength then
+            let offset = rdt.dist
+            Some( List.item offset env.localScopes )
+        else
+            failwith (sprintf "Can't find scope... distance too big: %A" rdt)
+    | None -> None
 
 type param = {
     name: identifier_terminal
     value: Literal
     }
 
+type tempx = {
+     lit: Literal;
+     env: Environment; }
+
+
+let initScope (enclosing:Scope option) =
+    {
+    values = emptyMap()
+    enclosing = enclosing
+    }
 
 // Will create GLOBALs if you pass NONE of enclosing on first call.
-let initEnvironment (enclosing:Environment option) =
-    match enclosing with 
-    | None ->
-        let rec newEnv = {
-                         values = [] |> Map.ofSeq
-                         enclosing = None
-                         globals = newEnv // Self-refer to yourself.
-                         }
-        newEnv
-    | Some(enc) ->  {
-                    values = [] |> Map.ofSeq
-                    enclosing = Some(enc)
-                    globals = enc.globals
-                    }
+let initEnvironment scopeDistanceMap =
+    {
+    localDistances = scopeDistanceMap // distance back from current scope to scope that has the value
+    globalScope= initScope None
+    localScopes= [initScope None]
+    closures = emptyMap()
+    }
 
-let rec lookup (name:identifier_terminal) env = 
+let lookupItem (lst:Scope) (id:identifier_terminal) = 
+    try
+        lst.values.Item id.name
+    with 
+        | :? System.Exception as ex ->  failwith (sprintf "%A. For name: %A  In scope: %A" ex.Message id.name lst)
+
+let lookupVariable (id:identifier_terminal) (env:Environment) = 
+    match findScope id env with
+    | Some(scope) ->    lookupItem scope id
+    | None ->           lookupItem env.globalScope id
+                    
+#if OLD
+let rec lookup (name:identifier_terminal) (env:Environment) = 
     // In the book, this took a TOKEN, but I think this is better.
-    if( not (env.values.ContainsKey name.name) )then
-        match env.enclosing with
+    if( not (env.localScopes.Head.values.ContainsKey name.name) )then
+        match env.localScopes.Head.enclosing with
         | Some( env) ->  lookup name env
-        | None -> if( not (env.globals.values.ContainsKey name.name)) then
+        | None -> if( not (env.values.ContainsKey name.name)) then
                     let msg = sprintf "Undefined variable in lookup: %s" name.name
                     failwith msg
                   else
-                    lookup name env.globals
+                    lookup name env
     else 
         (env.values.Item name.name, env)
+#endif
 
+
+
+let assignAt (dist:ResolveDistance) (id:identifier_terminal) (value:Literal) (env:Environment) =
+    if dist < 0 || dist > (List.length env.localScopes) then
+        failwith "Index out of range"
+    else 
+        let len = List.length env.localScopes
+        let offset = dist //len - dist -1
+        let scope = env.localScopes.Item offset
+        let newMap = scope.values.Add(id.name, value)
+        let newScope = { scope with values = newMap }
+        // TBD: Check for out of range
+        let newScopeList = List.mapi (fun i x -> if i = dist then newScope else x) env.localScopes
+        { env with localScopes = newScopeList }
 
  
-let rec assign (name:identifier_terminal) (value:Literal) env =
-    if env.values.ContainsKey name.name then
-        { env with values = env.values.Add( name.name, value) // New map with the updated entry.
+let rec assignGlobal (id:identifier_terminal) (value:Literal) (env:Environment) =
+    if env.globalScope.values.ContainsKey id.name then
+        { env with globalScope = 
+                                    { env.globalScope with values = env.globalScope.values.Add( id.name, value) // New map with the updated entry.
+                                    }
         }
     else
-        match env.enclosing with
-        | None -> failwith (sprintf "Undefined variable in assign: %s." name.name)
-        | Some( env') -> assign name value env'
+        failwith (sprintf "Undefined variable in assign: %s." id.name)
 
-let define (name:identifier_terminal) value env =
-    { env with values = env.values.Add ( name.name, value )
-    }
+let define (id:identifier_terminal) value (env:Environment) =
+    let scope = env.localScopes.Head
+    let newMap = scope.values.Add(id.name, value)
+    let newScope = { scope with values = newMap }
+    // TBD: Check for out of range
+    let newScopeList = List.mapi (fun i x -> if i = 0 then newScope else x) env.localScopes
+    //printfn "%A" newScopeList
+    value, { env with localScopes = newScopeList }
+
+let defineGlobal (id:identifier_terminal) value (env:Environment) =
+    let scope = env.globalScope
+    let newMap = scope.values.Add(id.name, value)
+    let newScope = { scope with values = newMap }
+    value, { env with globalScope = newScope }
+
 
 
 let CNUMBER value : float =
@@ -149,12 +243,12 @@ let toString lit =
                     | BOOL b -> string b
                     | NIL -> "NIL"
                     | CALL c -> match c.decl with 
-                                | DECL d -> sprintf "Function(%A)" d.functionName 
+                                | DECL d -> sprintf "Function(%A)" d.id 
                                 | NATIVE name -> sprintf "Native(%A)" name
     
 
 // Visitor for expressions
-let rec evalExpression (e:expr) env = 
+let rec evalExpression (e:expr) (env:Environment) = 
     match e with 
 #if OLD
         | EqualityExpr (c, more) -> prettyPrint (ComparisonExpr c)
@@ -190,9 +284,10 @@ let rec evalExpression (e:expr) env =
                                                                 prettyPrint (UnaryExpr un)
                                                 | ZERO -> ()
 #endif
-        | AssignExpr e ->       let name,ex = e
-                                let value, env' = evalExpression ex env
-                                value, assign name value env'
+        | AssignExpr e ->       let value, env' = evalExpression e.value env
+                                match env'.localDistances.TryFind e.id.guid with // TODO: TryFind (in 2 places) should be in a function.
+                                | Some(rdt) -> value, assignAt rdt.dist e.id value env'
+                                | None -> value, assignGlobal e.id value env'
         | BinaryExpr e ->       let left,op,right = e
                                 let leftValue, env' = evalExpression left env
                                 let rightValue, env'' = evalExpression right env'
@@ -223,7 +318,7 @@ let rec evalExpression (e:expr) env =
                             | Parser.STRING s -> STRING s.value, env
                             | Parser.BOOL b -> BOOL b.value, env
                             | Parser.NIL -> NIL, env
-                            | Parser.IDENTIFIER i -> lookup i env
+                            | Parser.IDENTIFIER i -> (lookupVariable i env), env // Was 
                             | Parser.THIS -> NUMBER 0.0, env // TBD
         | GroupingExpr e ->    evalExpression e env
         | LogicalExpr e -> let left,op,right = e    
@@ -241,6 +336,7 @@ let rec evalExpression (e:expr) env =
                                             let rightValue, env'' = evalExpression right env'
                                             rightValue, env''
         | CallExpr e -> let calleeName, args = e
+                        
                         // Evaluate parameters in order
 
                         // TBD: Can't use map, because need to thread the ENV through (I think env can change???)
@@ -250,18 +346,38 @@ let rec evalExpression (e:expr) env =
                             | arg::xs -> let lit, env' = evalExpression arg env
                                          evalArgsInOrder (lit :: newList) xs env'  
 
-                        let evaluatedArgs, ignore, env1 = evalArgsInOrder [] args env
+                        let evaluatedArgs, _, env1 = evalArgsInOrder [] args env
+
                         let floxFunction, env2 = evalExpression calleeName env1
+
+
+
                         match floxFunction with 
-                                                | CALL c -> let lit, env3 = callFunction c evaluatedArgs env2 
-                                                            let updatedCallable = CALL { c with closure = env3}
-                                                            match c.decl with
-                                                            | DECL decl -> let env4 = assign decl.functionName updatedCallable env3
-                                                                           lit, env4
-                                                            | _ ->failwith "NATIVE functions cannot be overriden."
-                                                | _ -> failwith (sprintf "Can only call functions and classes.: %A" floxFunction)
+                        | CALL c -> 
+                                    match c.decl with
+                                    | DECL _ ->     
+                                                    let envClosure = (env2.closures.Item c.closureKey).Value
+                                                    let lit = callFunction c evaluatedArgs envClosure
+                                                    lit, env2 
+#if JUNK
+                                    
+                                                    match calleeName with 
+                                                    | PrimaryExpr( IDENTIFIER id) -> 
+                                                        let updatedCallable = CALL { c with closures = id.guid}
+                                                        let value = lit
+                                                        match envClosure.localDistances.TryFind id.guid with
+                                                        | Some(rdt) -> lit, assignAt rdt.dist id value env3
+                                                        | None ->   lit, assignGlobal id value env3                                                    
+                                                        | _ -> failwith "Only expect identifier here."
+#endif
+
+                                    | _ ->   let lit = callFunction c evaluatedArgs env2
+                                             lit, env2
+                                             //failwith "NATIVE functions cannot be overriden."
+                        | _ -> failwith (sprintf "Can only call functions and classes.: %A" floxFunction)
 
 and evalFor forStmt lastResult env =
+    // TBD
     lastResult, env
 and evalIf ifs lastResult env =
     let lit, env' = evalExpression ifs.condition env
@@ -289,23 +405,30 @@ and execSingleStatement statement lastResult env =
                                                         (lit, env')
                                 | Stmt.Variable (name,None) -> NIL, env
                                 | Stmt.Variable (name,Some(expr.PrimaryExpr e)) -> let value, env' = evalExpression (PrimaryExpr e) env
-                                                                                   value, define name value env'  
+                                                                                   define name value env'  
                                 | Stmt.Variable (name,Some(expr.UnaryExpr e)) ->     let value, env' = evalExpression (UnaryExpr e) env
-                                                                                     value, define name value env'  
+                                                                                     define name value env'  
                                 | Stmt.Variable (name,Some(expr.BinaryExpr e)) ->    let value, env' = evalExpression (BinaryExpr e) env 
-                                                                                     value, define name value env'  
+                                                                                     define name value env'  
                                 | Stmt.Variable (name,Some(expr.GroupingExpr e)) ->  let value, env' = evalExpression (GroupingExpr e) env
-                                                                                     value, define name value env'  
+                                                                                     define name value env'  
                                 | Stmt.Variable (name,Some(expr.AssignExpr e)) ->  let value, env' = evalExpression (AssignExpr e) env
-                                                                                   value, define name value env'  
+                                                                                   define name value env'  
                                 | Stmt.Variable (name,Some(expr.LogicalExpr e)) ->  let value, env' = evalExpression (LogicalExpr e) env
-                                                                                    value, define name value env'  
+                                                                                    define name value env'  
                                 | Stmt.Variable (name,Some(expr.CallExpr e)) ->  let value, env' = evalExpression (CallExpr e) env
-                                                                                 value, define name value env'  
+                                                                                 define name value env'  
                                 | Stmt.Block stms ->    // Exec more statements in child context. (TBD This is much nicer than book!)
-                                                        let childEnv = initEnvironment (Some(env))
-                                                        execStatements stms NIL childEnv 
-
+                                                        let env1 = pushNewScope env
+                                                        let lit,env2 = execStatements stms NIL env1
+                                                        lit, popScope env2
+#if OLD
+                                | Stmt.FunctionBody body -> // Function body not treated as a block for some reason.
+                                                        let env1 = pushNewScope env
+                                                        let lit,env2 = execStatements body NIL env1
+                                                        lit, popScope env2
+#endif
+                                        
 #if BAD
     TBD: Not compile  using 'Record Pattern                              | Stmt.If { if_statement.condition = condition;
                                             if_statement.thenExpr = thenExpr;
@@ -315,67 +438,99 @@ and execSingleStatement statement lastResult env =
                                 | Stmt.ForStmt forStmt -> evalFor forStmt lastResult env
                                 | Stmt.While whileStmt ->   evalWhile whileStmt lastResult env
                                 | Stmt.FunctionStmt funcStmt ->     // Interpreting a function definition adds it to the environment.
-                                                                    // TBD: COuld be cleaner.
-                                                                    let (c:loxCallable) = { decl = DECL funcStmt; closure = env } // Is this the right env? Won't have function name in it, yet. 
-                                                                    NIL, define funcStmt.functionName (CALL c) env
+                                                                    // 
+                                                                    // NOTE: For recursion, the function name itself needs to be in the closure.
+                                                                    // There was no good way to do this, so I made a separate map of all the closures
+                                                                    //      for each funcStmt.id
+                                                                    // TBD: If found about about "let rec" with lazy, after I did all this.
+                                                                    //  I can probably get rid of closures collection.
+
+                                                                    let (c:loxCallable) = { decl = DECL funcStmt; closureKey = funcStmt.id.guid }
+                                                                    let lit,env2 = define funcStmt.id (CALL c) env
+                                                                    let rec env3 = { env2 with closures = env2.closures.Add( funcStmt.id.guid, lazy env3) } 
+                                                                    lit,env3
+
+
                                 | Stmt.ReturnStmt returnStmt -> // We return values back through call stack instead of THROW that book uses.
                                                                 evalExpression returnStmt.value env
 
 
 // Implements the VISITOR pattern from book.
 // I want to keep track of the "last" result on BLOCKS and LOOPS -- jorge.
-and execStatements( statements:Stmt list) (lastReturn:Literal) env : Literal * Environment =
+and execStatements( statements:Stmt list) (lastReturn:Literal) (env:Environment) : Literal * Environment =
     match statements with
     | [] -> lastReturn, env
     | s :: xs -> 
-        let result, ctx' = execSingleStatement s NIL env
-        // TODO: Remove this if you don't want to print intermediate results.
-        //printfn "%s" (toString result) |> ignore
-        execStatements xs result ctx'
+        let lit, env1 =execSingleStatement s NIL env
+        execStatements xs lit env1
+
+// This function is much more complex in Java.
+and executeBlock( statements: Stmt list)  (closure:Environment) =
+    execStatements statements NIL closure
 
 // TBD: I think I have the definition of ARGS and PARAMs reversed.
-and callFunction (c:loxCallable) (args:Literal list) (env:Environment) : Literal * Environment  =
-    let (lit:Literal), childEnvRet  = match c.decl with
-                                    | NATIVE n -> match n.name with 
-                                                  | "clock" -> STRING (System.DateTime.Now.ToString("")), env
-                                                  | _ -> failwith "Unknown native function."
-                                    | DECL decl -> 
-                                        let rec evalParamsInOrder (parameters: identifier_terminal list) (args: Literal list) (env:Environment) =
-                                            if (List.length parameters) <> (List.length args) then   
-                                                failwith "Unexpected number of arguments to function." // Book does not have. May be impossible.
-                                            else
-                                                // Assume args and params in same order
-                                                match args with 
-                                                | arg::xsArg -> match parameters with 
-                                                                 | par::xsPar -> let env' = define par arg env
-                                                                                 evalParamsInOrder xsPar xsArg env'
+and callFunction (c:loxCallable) (args:Literal list) (envClosure:Environment) : Literal   =
+    match c.decl with
+    | NATIVE n -> match n.name with 
+                    | "clock" -> STRING (System.DateTime.Now.ToString(""))
+                    | _ -> failwith "Unknown native function."
+    | DECL decl -> 
+        let rec defineParamsInOrder (parameters: identifier_terminal list) (args: Literal list) (env:Environment) =
+            if (List.length parameters) <> (List.length args) then   
+                failwith "Unexpected number of arguments to function." // Book does not have. May be impossible.
+            else
+                // Assume args and params in same order
+                match args with 
+                | arg::xsArg -> match parameters with 
+                                    | par::xsPar -> let lit,env' = define par arg env
+                                                    defineParamsInOrder xsPar xsArg env'
                                                             
-                                                                 | _ -> failwith "impossible case"
-                                                | [] -> env // Break recursion
+                                    | _ -> failwith "invalid case"
+                | [] -> env // Break recursion
 
-                                        //let childEnv = initEnvironment ( Some( env.globals)) // New Environment with globals in it.
-                                        let childEnv = { c.closure with enclosing = Some(env) }
-                                        let childEnv2 = evalParamsInOrder  decl.parameters args childEnv
-                                        execStatements [decl.body] NIL childEnv2
-    lit, env // childEnv' <- Changed to try to get closures to work.
+        let env1 = pushNewScope envClosure
 
+        // See 10.4. We need a new scope for each funtion call to hold the params/args.
+        let env2 = defineParamsInOrder  decl.parameters args env1 // Then add the local args
+
+        // Execute statements in body of function (also, a new scope here because I wanted the body to be  balck)
+        //let lit = match decl.body with
+        //| Block b -> let lit, env3 = executeBlock b env2
+        //             lit
+        //| _ -> failwith "Unexpected body"                         
+        let lit, env3 = execSingleStatement decl.body NIL env2
+
+        popScope env3 |> ignore // Not really necessary
         
-let interpret (statements:Stmt list) : unit = 
+        // After executing, we are done with env2.
+        lit // Original environment not retured.
+        
+        
+let interpret (statements:Stmt list) (scopeDistanceMap: ScopeDistanceMap) : unit = 
     try
-        let env = initEnvironment None
+        let env = initEnvironment scopeDistanceMap
 
-        let clockIdentifier : identifier_terminal = { name = "clock" }
-        let clock: loxCallable = { decl = NATIVE clockIdentifier; closure=env;  }
+        let clockIdentifier : identifier_terminal = { name = "clock"; guid = newGuid() }
+        let clock: loxCallable = { decl = NATIVE clockIdentifier; closureKey= -1;  }
         let clockLit = CALL clock 
-        let ctx' = { env with globals = define clockIdentifier clockLit env.globals }
-        let ctx'' = execStatements statements NIL ctx'
+        let funcLit,ctx' = defineGlobal clockIdentifier clockLit env
+        let ctx'' = execStatements statements funcLit ctx'
         ()
     with 
     | :? System.Exception as ex -> runtimeError ex.Message
 
+
+    // var x; x=2; print x; 
+    // var a = "global"; {   fun showA() {     print a;  }   showA();   var a = "block";   showA(); }
+
+    // var a=1; { var b=2; print a; print b; b=b+1; { b=b+1; print a; print b;}}
+    // var a=1; fun f(){  print a; var a=2; print a; } f();
+    // fun f(a,b) { print a+b;} f(1,2);
+    
+    //  var a = 0; while( a <= 0) { print a; a=1; print a;}
+
     // Recursive count: fun count(n) { if(n>1) count(n-1); print n;} count(3);
     // FIB: var a = 0; var b = 1; while (a < 10000) {   print a;  var temp = a;  a = b;  b = temp + b;}
 
-    // fun f(a,b) { print a+b;} f(1,2);
 
     //fun makeCounter() {   var i = 0;   fun count() {     i = i + 1;     print i;   }   return count; } var counter = makeCounter(); counter(); counter(); // "1" then "2".

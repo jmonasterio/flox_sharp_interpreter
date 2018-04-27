@@ -3,6 +3,7 @@ open System
 open System.IO
 open Scanner
 open Parser
+open Resolver
 open Interpreter
 
 let run source =
@@ -10,8 +11,12 @@ let run source =
     try
         //printfn "%A" tokens
         let statementList = parse tokens
+
+        // Semantic analsysis passes
+        let scopeDistanceMap = resolverPass statementList // Does a second pass on all the sta
+
         //printfn "%A" statementList
-        interpret statementList
+        interpret statementList scopeDistanceMap
     with
     | :? System.Exception as ex -> printfn "FAIL: %A" ex.Message
 
