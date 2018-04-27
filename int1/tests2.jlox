@@ -43,4 +43,13 @@ print "TEST #8"; {
 	fun count(n) { if(n>0) count(n-1); print n;} count(3);
 	}
 
+	
+
+print "TEST #9"; {
+
+fun makeCounter() {   var i = 0;   fun count() {     i = i + 1;     print i;   }   return count; } var counter = makeCounter(); counter(); counter(); // "1" then "2".
+}
+
+
+
  
