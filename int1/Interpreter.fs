@@ -32,7 +32,7 @@ type Literal =
 and LiteralMap = Map<IdentifierName,Literal>
 
 and ClosureKey = UniqueId
-and ClosureMap = Map<ClosureKey,Lazy<LoxEnvironment list>>
+and ClosureMap = Map<ClosureKey,LoxEnvironment list>
 
 and LoxEnvironment =
     {
@@ -122,13 +122,14 @@ let rec lookupVariable (id:identifier_terminal) (   env:Environment) : Literal =
     lookupVariableInScope foundScope id 
                             
 
-let rec lookupClosure (env:Environment) (closureKey:ClosureKey) =
+let rec wrapClosure (env:Environment) (closureKey:ClosureKey) =
     if closureKey = -1 then
         env
     else if env.closures.ContainsKey closureKey then
-        let clos = (env.closures.Item closureKey).Value
+        let clos = (env.closures.Item closureKey)
         { env with localScopes = clos }
     else failwith (sprintf "Cannot find closureKey. For %A" closureKey)
+
                     
 #if OLD
 let rec lookup (name:identifier_terminal) (env:Environment) = 
@@ -363,9 +364,8 @@ let rec evalExpression (e:expr) (env:Environment) =
                         let floxFunction, env2 = evalExpression calleeName env1
 
                         match floxFunction with 
-                        | CALL c -> let enclosedEnvironment = lookupClosure env2 c.closureKey
-                                    let lit, envClosureOut = callFunction c evaluatedArgs enclosedEnvironment
-                                    lit, { env2 with closures = envClosureOut.closures } // ; enclosing = Some(envClosureOut) }
+                        | CALL c -> let lit, envClosureOut = callFunction c evaluatedArgs env2
+                                    lit, envClosureOut
                         | _ -> failwith (sprintf "Can only call functions and classes.: %A" floxFunction)
 
 and evalFor forStmt lastResult env =
@@ -439,7 +439,7 @@ and execSingleStatement statement lastResult env =
 
                                                                     let (c:loxCallable) = { decl = DECL funcStmt; closureKey = funcStmt.id.guid }
                                                                     let lit,env2 = define funcStmt.id (CALL c) env
-                                                                    let rec env3 = { env2 with closures = env2.closures.Add( funcStmt.id.guid, lazy env2.localScopes) } 
+                                                                    let rec env3 = { env2 with closures = env2.closures.Add( funcStmt.id.guid, env2.localScopes) } 
                                                                     lit,env3
 
 
@@ -461,7 +461,8 @@ and executeBlock( statements: Stmt list)  (closure:Environment) =
     execStatements statements NIL closure
 
 // TBD: I think I have the definition of ARGS and PARAMs reversed.
-and callFunction (c:loxCallable) (args:Literal list) (envClosure:Environment) : Literal  * Environment  =
+and callFunction (c:loxCallable) (args:Literal list) (envIn:Environment) : Literal  * Environment  =
+    let envClosure = wrapClosure envIn c.closureKey
     match c.decl with
     | NATIVE n -> match n.name with 
                     | "clock" -> STRING (System.DateTime.Now.ToString("")), envClosure
@@ -494,7 +495,9 @@ and callFunction (c:loxCallable) (args:Literal list) (envClosure:Environment) : 
 
         // After executing, we are done with env2.
         //lit, popScope env3 // The caller only cares about the changed CLOSURES HERE. Every other part of popped environment will be ignored.
-        lit, popScope env3
+        let envClosureOut = popScope env3
+        lit, { envIn with closures = envClosureOut.closures.Add( c.closureKey, envClosureOut.localScopes); } //localScopes = envClosureOut.localScopes } // ; enclosing = Some(envClosureOut) }
+
         
 let interpret (statements:Stmt list) (scopeDistanceMap: ScopeDistanceMap) : unit = 
     try

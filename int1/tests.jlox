@@ -2,7 +2,7 @@
 
 
 print "TEST #5"; {
- fun f(a,b) { print a+b;} f(1,2);
+ fun f(a,b) { print a+b;} if (f(1,2) == 3) {print "PASS";} else {print "FAIL";}
  }
 
 
