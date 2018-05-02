@@ -137,15 +137,15 @@ let rec resolveSingleStatement statement (ctx:ResolverContext) : ResolverContext
             match statement with 
                                 | Stmt.Expression e -> ctx |> resolveExpression e
                                 | Stmt.Print p ->       ctx |> resolveExpression p
-                                | Stmt.Variable (name,None) -> ctx |> declare name
+                                | Stmt.Variable {name=name;initializer=None} -> ctx |> declare name
                                                                     
-                                | Stmt.Variable (name,Some(expr.PrimaryExpr e)) -> visitVariableStmt (PrimaryExpr e) name ctx
-                                | Stmt.Variable (name,Some(expr.UnaryExpr e)) ->     visitVariableStmt ( UnaryExpr e) name ctx
-                                | Stmt.Variable (name,Some(expr.BinaryExpr e)) ->    visitVariableStmt ( BinaryExpr e) name ctx 
-                                | Stmt.Variable (name,Some(expr.GroupingExpr e)) ->  visitVariableStmt ( GroupingExpr e) name ctx
-                                | Stmt.Variable (name,Some(expr.AssignExpr e)) ->  visitVariableStmt ( AssignExpr e) name ctx
-                                | Stmt.Variable (name,Some(expr.LogicalExpr e)) ->  visitVariableStmt ( LogicalExpr e) name ctx  
-                                | Stmt.Variable (name,Some(expr.CallExpr e)) ->  visitVariableStmt ( CallExpr e) name ctx 
+                                | Stmt.Variable {name=name;initializer=Some(expr.PrimaryExpr e)} -> visitVariableStmt (PrimaryExpr e) name ctx
+                                | Stmt.Variable {name=name;initializer=Some(expr.UnaryExpr e)} ->     visitVariableStmt ( UnaryExpr e) name ctx
+                                | Stmt.Variable {name=name;initializer=Some(expr.BinaryExpr e)} ->    visitVariableStmt ( BinaryExpr e) name ctx 
+                                | Stmt.Variable {name=name;initializer=Some(expr.GroupingExpr e)} ->  visitVariableStmt ( GroupingExpr e) name ctx
+                                | Stmt.Variable {name=name;initializer=Some(expr.AssignExpr e)} ->  visitVariableStmt ( AssignExpr e) name ctx
+                                | Stmt.Variable {name=name;initializer=Some(expr.LogicalExpr e)} ->  visitVariableStmt ( LogicalExpr e) name ctx  
+                                | Stmt.Variable {name=name;initializer=Some(expr.CallExpr e)} ->  visitVariableStmt ( CallExpr e) name ctx 
                                 | Stmt.Block stmts ->   ctx |> beginScope 
                                                             |> resolveStatements stmts
                                                             |> endScope 
@@ -170,6 +170,10 @@ let rec resolveSingleStatement statement (ctx:ResolverContext) : ResolverContext
                                                                     ctx |> resolveExpression ( returnStmt.value ) 
                                                                 else
                                                                     failwith "Cannot return from top-level code"
+                                | Stmt.Class cls ->    ctx |> declare cls.name 
+                                                           |> define cls.name
+                                                           |> resolveLocal cls.name
+                                | _ -> failwith "unknown stament type"
 
 and resolveFunction (f:function_statement) ctx =
     let currentFunction = ctx.enclosingFunction // See 11.5.1: Detecting return outside of function.

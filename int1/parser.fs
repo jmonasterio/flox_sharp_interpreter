@@ -163,6 +163,7 @@ type Stmt =
     | ForStmt of for_statement   
     | FunctionStmt of function_statement
     | ReturnStmt of return_statement
+    | Class of class_decl
     //| FunctionBody of Stmt list // Function body (not counted as block because resolver handles different
 and return_statement = { keyword: string; value: expr; } // TBD: Book says "keyword" is so we can use it's location for error reporting.
 and while_statement = { condition: expr; body: Stmt}
@@ -171,7 +172,8 @@ and function_statement = { id: identifier_terminal; parameters: identifier_termi
     // TBD: Would it be better if the types below were structs instead of tuples (so each part has a name).
     // Did if_statement as an example -- a little more self documenting. The matches must still be against a tuple.
 and for_statement =  Option<Stmt> * Option<expr> * Option<Stmt> * Stmt   // initializer * condition * increment * statement
-and var_statement = identifier_terminal * Option<expr> // name * initializer  <- // TBD: Not in book.
+and var_statement = { name:identifier_terminal; initializer: Option<expr> } // TBD: Not in book.
+and class_decl = { name: identifier_terminal; methods: function_statement list }
 
 #if FALSE
 let (^^) p q = not(p && q) && (p || q) // makeshift xor operator
@@ -582,7 +584,8 @@ let varDeclaration ctx =
                                                                                 newCtx, Some(ex)
                                                 | { matched = None } -> ctx'', None
     let ctx'''', semi = consume ctx''' TokenType.SEMICOLON "Expect ';' after variable declaration."
-    (ctx'''', Variable ( { name = name.lexeme; guid = newGuid() }, initializer ) ) // TBD: name.literal??? or IDENTIFIER name.lexeme
+    (ctx'''',  { name = name.lexeme; guid = newGuid() }, initializer )  // TBD: name.literal??? or IDENTIFIER name.lexeme
+
 
 type functionKind =
     | FUNCTION
@@ -603,42 +606,22 @@ let desugarFor (forStmt:for_statement) =
     let body''' = match initializer with
                      | None -> body''
                      | Some (initializer) -> Block [initializer; body'']
-    printf "%A" body'''
+    //printf "%A" body'''
     body'''   
 
-#if CRAP    
-    let getList (x:Stmt) : Stmt list =
-        match x with
-        | Block stmt -> stmt
-        | _ -> failwith "unexpected"
 
-        
-    // Example of desugaring, instad of adding something to the interpreter.
-    let body1 = match initializer with
-    | None -> (getList body) 
-    | Some(i) -> i :: (getList body)
-
-    let cnd = match conditionOption with 
-    | None -> PrimaryExpr( BOOL { value = true; })
-    | Some(cond) -> cond
-
-    let body2 = match increment with 
-            | Some(inc) -> List.append body1 [inc]
-            | None -> body1
-
-    let body3 = While { condition= cnd; body = Block(body2);}
-    body3
-#endif
-
-
-
+// TBD: This function is really yucky.
 let rec declaration ctx = 
     try
-        let ctx', matchedToken = matchParser ctx [VAR;FUN]
+        let ctx', matchedToken = matchParser ctx [VAR;FUN;CLASS]
         let ctx'', dec = match matchedToken with
                                                 | { matched = Some(token)} -> match token.tokenType with 
-                                                                                        | VAR -> varDeclaration ctx'
-                                                                                        | FUN -> functionDeclaration FUNCTION ctx'
+                                                                                        | VAR -> let ctx'', v, opt = varDeclaration ctx'
+                                                                                                 ctx'', Variable({ name=v; initializer=opt})
+                                                                                        | FUN -> let ctx'',f = functionDeclaration FUNCTION ctx'
+                                                                                                 ctx'', FunctionStmt(f)
+                                                                                        | CLASS -> let ctx'', c = classDeclaration ctx'
+                                                                                                   ctx'', Class(c)
                                                                                         | _ -> failwith "INTERNAL: Need to machParser above."
                                                 | { matched = None}  -> statement ctx'    
         (ctx'', Some(dec))
@@ -702,13 +685,13 @@ and forStatement ctx: ParserContext * for_statement  =
 
     let ctx'', matchedToken = matchParser ctx' [VAR;SEMICOLON]
     let ctx2,(initializer:Option<Stmt>) = match matchedToken with
-                                            | {matched = Some(token)} -> match token.tokenType with
-                                                                            | TokenType.VAR -> let tempCtx, stm = varDeclaration ctx''
-                                                                                               tempCtx, Some(stm)
-                                                                            | TokenType.SEMICOLON -> ctx'', None;
-                                                                            | _ -> failwith "Not possible?"
-                                            | {matched = None } ->  let tempCtx, stm = expressionStatement ctx' // IMPORTANT: Back to previous context!
-                                                                    tempCtx, Some(stm)
+                                                | {matched = Some(token)} -> match token.tokenType with
+                                                                                | TokenType.VAR -> let tempCtx, id, init = varDeclaration ctx''
+                                                                                                   tempCtx, Some(Variable({name=id;initializer=init}))
+                                                                                | TokenType.SEMICOLON -> ctx'', None;
+                                                                                | _ -> failwith "Not possible?"
+                                                | {matched = None } ->  let tempCtx, stm = expressionStatement ctx' // IMPORTANT: Back to previous context!
+                                                                        tempCtx, Some(stm)
     let condition, ctx3 = if not ( check ctx2 SEMICOLON ) then
                                 let tempCtx, exp = expression ctx2
                                 Some( exp), tempCtx
@@ -748,7 +731,7 @@ and ifStatement ctx =
                                      elseBranch = None }
 
 // TBD: Will be reused later for methods.
-and functionDeclaration (kind:functionKind) ctx = 
+and functionDeclaration (kind:functionKind) ctx : ParserContext * function_statement = 
 
     let rec matchParams paramList ctx =
         if List.length paramList >= 8 then
@@ -773,7 +756,25 @@ and functionDeclaration (kind:functionKind) ctx =
     let ctx4', _ = consume ctx''' TokenType.RIGHT_PAREN "Expect ')' after parameters."
     let ctx5', _ = consume ctx4' TokenType.LEFT_BRACE (sprintf "Expect '{' before %A body." kind)
     let ctx6', bodyStmt = block ctx5'  // Book did not use a BLOCK here for function body.
-    ctx6', FunctionStmt( { id = id; parameters = parameters; body = bodyStmt} )
+    ctx6', { id = id; parameters = parameters; body = bodyStmt}
+
+and classDeclaration ctx =
+    let ctx', name = consume ctx TokenType.IDENTIFIER "Expect class name."
+    let id: identifier_terminal = { name = name.lexeme; guid = newGuid() } // TBD: Do I need a guid for classes?
+
+    let ctx2, token = consume ctx' TokenType.LEFT_BRACE "Expect '{' before class body."
+    let rec addMethods ctx (methods: function_statement list) =
+        if not (isAtEnd ctx) && not (check ctx TokenType.RIGHT_BRACE) then
+            let ctx', method = functionDeclaration FUNCTION ctx // Methods do not have the "fun" keyword. (12.1)
+            addMethods ctx' ( method :: methods  )
+        else
+            ctx, methods
+
+    let ctx3, methods = addMethods ctx2 []
+    let ctx4, token = consume ctx3 RIGHT_BRACE "Except '}' after expression."
+    ctx4, { name = id; methods = methods }
+    
+
 
 let parse tokens = 
 

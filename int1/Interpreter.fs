@@ -28,6 +28,8 @@ type Literal =
     | STRING of string
     | NIL
     | CALL of loxCallable
+    | CLASS of loxClass
+    | INSTANCE of loxInstance
 
 and LiteralMap = Map<IdentifierName,Literal>
 
@@ -55,6 +57,17 @@ and loxCallable =
         closureKey: ClosureKey;
     }
 
+and loxClass = // 12.1
+    {
+        id: IdentifierName
+        methods: function_statement list
+        arity: int;
+    }
+
+and loxInstance = // 12.2
+    {
+        klass: loxClass
+    }
 
 // TBD: Kinda sucks that these can't be in the resolver.
 
@@ -147,29 +160,36 @@ let rec lookup (name:identifier_terminal) (env:Environment) =
 #endif
 
 
-
-let assignAt (dist:ResolveDistance) (id:identifier_terminal) (value:Literal) (env:Environment) =
-    if dist < 0 || dist > (List.length env.localScopes) then
-        failwith "Index out of range"
-    else 
-        let len = List.length env.localScopes
-        let offset = dist //len - dist -1
-        let scope = env.localScopes.Item offset
-        let newMap = scope.values.Add(id.name, value)
-        let newScope = { scope with values = newMap }
-        // TBD: Check for out of range
-        let newScopeList = List.mapi (fun i x -> if i = dist then newScope else x) env.localScopes
-        { env with localScopes = newScopeList }
+let assignValue value env (id:identifier_terminal) =
+    let assignAt (dist:ResolveDistance) (id:identifier_terminal) (value:Literal) (env:Environment) =
+        if dist < 0 || dist > (List.length env.localScopes) then
+            failwith "Index out of range"
+        else 
+            let len = List.length env.localScopes
+            let offset = dist //len - dist -1
+            let scope = env.localScopes.Item offset
+            let newMap = scope.values.Add(id.name, value)
+            let newScope = { scope with values = newMap }
+            // TBD: Check for out of range
+            let newScopeList = List.mapi (fun i x -> if i = dist then newScope else x) env.localScopes
+            { env with localScopes = newScopeList }
 
  
-let rec assignGlobal (id:identifier_terminal) (value:Literal) (env:Environment) =
-    if env.globalScope.values.ContainsKey id.name then
-        { env with globalScope = 
-                                    { env.globalScope with values = env.globalScope.values.Add( id.name, value) // New map with the updated entry.
-                                    }
-        }
-    else
-        failwith (sprintf "Undefined variable in assign: %s." id.name)
+    let rec assignGlobal (id:identifier_terminal) (value:Literal) (env:Environment) =
+        if env.globalScope.values.ContainsKey id.name then
+            { env with globalScope = 
+                                        { env.globalScope with values = env.globalScope.values.Add( id.name, value) // New map with the updated entry.
+                                        }
+            }
+        else
+            failwith (sprintf "Undefined variable in assign: %s." id.name)
+
+
+ 
+    match env.localDistances.TryFind id.guid with
+    | Some(rdt) -> value, assignAt rdt.dist id value env
+    | None -> value, assignGlobal id value env
+
 
 let define (id:identifier_terminal) value (env:Environment) =
     let scope = env.localScopes.Head
@@ -186,7 +206,17 @@ let defineGlobal (id:identifier_terminal) value (env:Environment) =
     let newScope = { scope with values = newMap }
     value, { env with globalScope = newScope }
 
-
+let toString lit =
+    match lit with
+                    | NUMBER n -> string n
+                    | STRING s -> s
+                    | BOOL b -> string b
+                    | NIL -> "NIL"
+                    | CALL c -> match c.decl with 
+                                | DECL d -> sprintf "Function(%A)" d.id 
+                                | NATIVE name -> sprintf "Native(%A)" name
+                    | CLASS c -> c.id
+                    | INSTANCE i -> i.klass.id + " instance"
 
 let CNUMBER value : float =
     match value with
@@ -195,6 +225,8 @@ let CNUMBER value : float =
     | STRING s -> runtimeError "Operand must be a number."
     | NIL -> runtimeError "Operand must be a number."
     | CALL c-> runtimeError "TBD"
+    | CLASS c -> runtimeError "Operand must be a number."
+    | INSTANCE c -> runtimeError "Operand must be a number."
 
 let CSTRING value : string =
     match value with
@@ -203,6 +235,8 @@ let CSTRING value : string =
     | STRING s -> s
     | NIL -> runtimeError "Operand must be a string."
     | CALL c-> runtimeError "TBD"
+    | CLASS c-> c.id
+    | INSTANCE i -> i.klass.id + " instance"
 
 
 
@@ -213,6 +247,8 @@ let isNumbery value =
     | STRING s -> false
     | NIL -> false
     | CALL c-> runtimeError "TBD"
+    | INSTANCE i-> false
+    | CLASS c -> false
 
 let isStringy value =
     match value with
@@ -221,6 +257,8 @@ let isStringy value =
     | STRING s -> true
     | NIL -> false
     | CALL c-> runtimeError "TBD"
+    | INSTANCE i-> false
+    | CLASS c -> false
 
 let isTruthy value =
     match value with
@@ -228,6 +266,8 @@ let isTruthy value =
     | NUMBER f -> not (f = 0.0)
     | STRING s -> (String.length s) > 0
     | NIL -> false
+    | INSTANCE i -> false
+    | CLASS c -> false
     | CALL c -> runtimeError "TBD"
 
 let isEqual left right =
@@ -247,18 +287,10 @@ let negative value =
     | STRING s -> runtimeError "- operator does not work on string"
     | NIL -> runtimeError "- operator does not work on NIL"
     | CALL f -> runtimeError "- operator does not work on a FUNCTION"
+    | INSTANCE i -> runtimeError "- operator does not work on an INSTANCE"
+    | CLASS c -> runtimeError "- operator does not work on an CLASS"
 
 
-let toString lit =
-    match lit with
-                    | NUMBER n -> string n
-                    | STRING s -> s
-                    | BOOL b -> string b
-                    | NIL -> "NIL"
-                    | CALL c -> match c.decl with 
-                                | DECL d -> sprintf "Function(%A)" d.id 
-                                | NATIVE name -> sprintf "Native(%A)" name
-    
 
 // Visitor for expressions
 let rec evalExpression (e:expr) (env:Environment) = 
@@ -298,9 +330,7 @@ let rec evalExpression (e:expr) (env:Environment) =
                                                 | ZERO -> ()
 #endif
         | AssignExpr e ->       let value, env' = evalExpression e.value env
-                                match env'.localDistances.TryFind e.id.guid with // TODO: TryFind (in 2 places) should be in a function.
-                                | Some(rdt) -> value, assignAt rdt.dist e.id value env'
-                                | None -> value, assignGlobal e.id value env'
+                                assignValue value env' e.id 
         | BinaryExpr e ->       let left,op,right = e
                                 let leftValue, env' = evalExpression left env
                                 let rightValue, env'' = evalExpression right env'
@@ -364,8 +394,9 @@ let rec evalExpression (e:expr) (env:Environment) =
                         let floxFunction, env2 = evalExpression calleeName env1
 
                         match floxFunction with 
-                        | CALL c -> let lit, envClosureOut = callFunction c evaluatedArgs env2
-                                    lit, envClosureOut
+                        | CALL c -> callFunction c evaluatedArgs env2
+                        | CLASS c -> callConstructor c evaluatedArgs env2
+                                     
                         | _ -> failwith (sprintf "Can only call functions and classes.: %A" floxFunction)
 
 and evalFor forStmt lastResult env =
@@ -394,21 +425,21 @@ and execSingleStatement statement lastResult env =
                                 | Stmt.Print p ->       let lit, env' = evalExpression p env
                                                         printfn "%s" (toString ( lit))
                                                         (lit, env')
-                                | Stmt.Variable (name,None) -> NIL, env
-                                | Stmt.Variable (name,Some(expr.PrimaryExpr e)) -> let value, env' = evalExpression (PrimaryExpr e) env
-                                                                                   define name value env'  
-                                | Stmt.Variable (name,Some(expr.UnaryExpr e)) ->     let value, env' = evalExpression (UnaryExpr e) env
-                                                                                     define name value env'  
-                                | Stmt.Variable (name,Some(expr.BinaryExpr e)) ->    let value, env' = evalExpression (BinaryExpr e) env 
-                                                                                     define name value env'  
-                                | Stmt.Variable (name,Some(expr.GroupingExpr e)) ->  let value, env' = evalExpression (GroupingExpr e) env
-                                                                                     define name value env'  
-                                | Stmt.Variable (name,Some(expr.AssignExpr e)) ->  let value, env' = evalExpression (AssignExpr e) env
-                                                                                   define name value env'  
-                                | Stmt.Variable (name,Some(expr.LogicalExpr e)) ->  let value, env' = evalExpression (LogicalExpr e) env
-                                                                                    define name value env'  
-                                | Stmt.Variable (name,Some(expr.CallExpr e)) ->  let value, env' = evalExpression (CallExpr e) env
-                                                                                 define name value env'  
+                                | Stmt.Variable {name=name; initializer=None} -> NIL, env
+                                | Stmt.Variable {name=name; initializer=Some(expr.PrimaryExpr e)} ->   let value, env' = evalExpression (PrimaryExpr e) env
+                                                                                                       define name value env'  
+                                | Stmt.Variable {name=name; initializer=Some(expr.UnaryExpr e)} ->     let value, env' = evalExpression (UnaryExpr e) env
+                                                                                                       define name value env'  
+                                | Stmt.Variable {name=name; initializer=Some(expr.BinaryExpr e)} ->    let value, env' = evalExpression (BinaryExpr e) env 
+                                                                                                       define name value env'  
+                                | Stmt.Variable {name=name; initializer=Some(expr.GroupingExpr e)} ->  let value, env' = evalExpression (GroupingExpr e) env
+                                                                                                       define name value env'  
+                                | Stmt.Variable {name=name; initializer=Some(expr.AssignExpr e)} ->    let value, env' = evalExpression (AssignExpr e) env
+                                                                                                       define name value env'  
+                                | Stmt.Variable {name=name; initializer=Some(expr.LogicalExpr e)} ->   let value, env' = evalExpression (LogicalExpr e) env
+                                                                                                       define name value env'  
+                                | Stmt.Variable {name=name; initializer=Some(expr.CallExpr e)} ->   let value, env' = evalExpression (CallExpr e) env
+                                                                                                    define name value env'  
                                 | Stmt.Block stms ->    // Exec more statements in child context. (TBD This is much nicer than book!)
                                                         let env1 = pushNewScope env
                                                         let lit,env2 = execStatements stms NIL env1
@@ -438,6 +469,11 @@ and execSingleStatement statement lastResult env =
 
                                 | Stmt.ReturnStmt returnStmt -> // We return values back through call stack instead of THROW that book uses.
                                                                 evalExpression returnStmt.value env
+                                | Stmt.Class classStmt ->  let lit, env' = define classStmt.name NIL env
+                                                           let klass = CLASS( { id = classStmt.name.name; methods=[]; arity=0 })
+                                                           assignValue klass env' classStmt.name // TBD: In book returned null (lit)
+
+                                | _ ->failwith "Not implemented"
 
 
 // Implements the VISITOR pattern from book.
@@ -452,6 +488,10 @@ and execStatements( statements:Stmt list) (lastReturn:Literal) (env:Environment)
 // This function is much more complex in Java.
 and executeBlock( statements: Stmt list)  (closure:Environment) =
     execStatements statements NIL closure
+
+and callConstructor (c:loxClass) (args:Literal list) (envIn:Environment) : Literal * Environment =
+    let instance = INSTANCE { klass = c } // TBD
+    instance, envIn
 
 // TBD: I think I have the definition of ARGS and PARAMs reversed.
 and callFunction (c:loxCallable) (args:Literal list) (envIn:Environment) : Literal  * Environment  =
