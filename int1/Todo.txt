@@ -1,5 +1,4 @@
-﻿RESOLVE PASS + SCOPES MAP (primary_expr -> bool)  + ENVIRONMENT WITH GLOBALS + SCOPEMAP
-
+﻿
 InterpreterContext
    - ScopesMap
    - Can I lookup an expression.

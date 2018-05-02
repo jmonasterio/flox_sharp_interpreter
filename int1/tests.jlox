@@ -1,11 +1,3 @@
-
-
-
-print "TEST #5"; {
- fun f(a,b) { print a+b;} if (f(1,2) == 3) {print "PASS";} else {print "FAIL";}
- }
-
-
  print "TEST #0";
  { print clock(); }
 
@@ -17,7 +9,13 @@ print "TEST #5"; {
  var a=1; { var b=2; print a; print b; b=b+1; { b=b+1; print a; print b;}}
  }
  
+ print "TEST #4"; {
+ var a=1; fun f(){  print a; var a=2; print a; } f();
+ }
 
+print "TEST #5"; {
+ fun f(a,b) { print a+b;} if (f(1,2) == 3) {print "PASS";} else {print "FAIL";}
+ }
  
  print "TEST #6"; {
  var a = 0; while( a <= 0) { print a; a=1; print a;}
@@ -33,9 +31,6 @@ print "TEST #5"; {
  { var a = "global"; {   fun showA() {     print a;  }   showA();   var a = "block";   showA(); } }
 
 
- print "TEST #4"; {
- var a=1; fun f(){  print a; var a=2; print a; } f();
- }
 
  // Recursion
 print "TEST #8"; {
@@ -50,6 +45,8 @@ print "TEST #9"; {
 fun makeCounter() {   var i = 0;   fun count() {     i = i + 1;     print i;   }   return count; } var counter = makeCounter(); counter(); counter(); // "1" then "2".
 }
 
-
+print "TEST #10"; {
+	for( var i=0; i<10; i=i+1;) { print i;}
+}
 
  

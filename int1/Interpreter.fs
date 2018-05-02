@@ -369,8 +369,7 @@ let rec evalExpression (e:expr) (env:Environment) =
                         | _ -> failwith (sprintf "Can only call functions and classes.: %A" floxFunction)
 
 and evalFor forStmt lastResult env =
-    // TBD
-    lastResult, env
+    failwith "Should not get here, because for loop desugared into a while loop."
 and evalIf ifs lastResult env =
     let lit, env' = evalExpression ifs.condition env
     if isTruthy lit then
@@ -414,12 +413,6 @@ and execSingleStatement statement lastResult env =
                                                         let env1 = pushNewScope env
                                                         let lit,env2 = execStatements stms NIL env1
                                                         lit, popScope env2
-#if OLD
-                                | Stmt.FunctionBody body -> // Function body not treated as a block for some reason.
-                                                        let env1 = pushNewScope env
-                                                        let lit,env2 = execStatements body NIL env1
-                                                        lit, popScope env2
-#endif
                                         
 #if BAD
     TBD: Not compile  using 'Record Pattern                              | Stmt.If { if_statement.condition = condition;
@@ -439,7 +432,7 @@ and execSingleStatement statement lastResult env =
 
                                                                     let (c:loxCallable) = { decl = DECL funcStmt; closureKey = funcStmt.id.guid }
                                                                     let lit,env2 = define funcStmt.id (CALL c) env
-                                                                    let rec env3 = { env2 with closures = env2.closures.Add( funcStmt.id.guid, env2.localScopes) } 
+                                                                    let env3 = { env2 with closures = env2.closures.Add( funcStmt.id.guid, env2.localScopes) } 
                                                                     lit,env3
 
 
@@ -495,8 +488,10 @@ and callFunction (c:loxCallable) (args:Literal list) (envIn:Environment) : Liter
 
         // After executing, we are done with env2.
         //lit, popScope env3 // The caller only cares about the changed CLOSURES HERE. Every other part of popped environment will be ignored.
+
+        // TBD: This is so yucky. Lots of effort here to fix test#9. Not sure how to make it better.
         let envClosureOut = popScope env3
-        lit, { envIn with closures = envClosureOut.closures.Add( c.closureKey, envClosureOut.localScopes); } //localScopes = envClosureOut.localScopes } // ; enclosing = Some(envClosureOut) }
+        lit, { envIn with closures = envClosureOut.closures.Add( c.closureKey, envClosureOut.localScopes); } 
 
         
 let interpret (statements:Stmt list) (scopeDistanceMap: ScopeDistanceMap) : unit = 

@@ -71,7 +71,7 @@ let visitVariableExpr (id: identifier_terminal) (ctx:ResolverContext) : Resolver
     ctx |> resolveLocal id  /// THIS IS THE PROBLEM.
 
 
-
+    
 let rec resolveExpression (e:expr) (ctx:ResolverContext) : ResolverContext =
     match e with 
         | AssignExpr e ->          
