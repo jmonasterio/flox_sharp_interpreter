@@ -30,11 +30,15 @@ type Literal =
     | CALL of loxCallable
     | CLASS of loxClass
     | INSTANCE of loxInstance
+    | METHOD of loxFunction // TBD: Not in book
+    | FUNCTION of loxFunction // TBD: Not in book
 
 and LiteralMap = Map<IdentifierName,Literal>
 
 and ClosureKey = UniqueId
 and ClosureMap = Map<ClosureKey,LoxEnvironment list>
+and FieldMap = Map<IdentifierName,Literal>
+and MethodMap = Map<IdentifierName,loxFunction>
 
 and LoxEnvironment =
     {
@@ -60,14 +64,38 @@ and loxCallable =
 and loxClass = // 12.1
     {
         id: IdentifierName
-        methods: function_statement list
+        mutable methods: MethodMap
         arity: int;
     }
 
 and loxInstance = // 12.2
     {
         klass: loxClass
+        mutable fields: FieldMap // TBD: Horrible. Shoule be kept in ENV instead of part of state of loxInstance.
     }
+
+and loxFunction =
+    {
+        method: function_statement
+        closure: Environment
+    }
+
+let findMethod (inst:loxInstance) (id:identifier_terminal) =
+    inst.klass.methods.TryFind id.name 
+
+// Can return a "field" or a "property" or a "method".
+let getField (inst:loxInstance) (id:identifier_terminal) =
+    match inst.fields.TryFind id.name with
+    | Some(lit) -> lit
+    | None -> match findMethod inst id with
+                | Some(meth) -> METHOD meth
+                | None -> failwith (sprintf "Undefined property: %A" id.name)
+
+let setField (inst:loxInstance) (id:identifier_terminal) (value:Literal) =
+    let newMap = inst.fields.Add( id.name, value)
+    inst.fields <- newMap
+    value
+
 
 // TBD: Kinda sucks that these can't be in the resolver.
 
@@ -217,6 +245,8 @@ let toString lit =
                                 | NATIVE name -> sprintf "Native(%A)" name
                     | CLASS c -> c.id
                     | INSTANCE i -> i.klass.id + " instance"
+                    | METHOD m -> m.method.id.name + " method"
+                    | FUNCTION f -> f.method.id.name + "function"
 
 let CNUMBER value : float =
     match value with
@@ -227,6 +257,8 @@ let CNUMBER value : float =
     | CALL c-> runtimeError "TBD"
     | CLASS c -> runtimeError "Operand must be a number."
     | INSTANCE c -> runtimeError "Operand must be a number."
+    | METHOD m -> runtimeError "Operand must be a number."
+    | FUNCTION f -> runtimeError "Operand must be a number."
 
 let CSTRING value : string =
     match value with
@@ -237,18 +269,14 @@ let CSTRING value : string =
     | CALL c-> runtimeError "TBD"
     | CLASS c-> c.id
     | INSTANCE i -> i.klass.id + " instance"
-
-
+    | METHOD m -> m.method.id.name + " method"
+    | FUNCTION f -> f.method.id.name + "function"
 
 let isNumbery value =
     match value with
-    | BOOL b -> false
     | NUMBER f -> true
-    | STRING s -> false
-    | NIL -> false
     | CALL c-> runtimeError "TBD"
-    | INSTANCE i-> false
-    | CLASS c -> false
+    | _ -> false
 
 let isStringy value =
     match value with
@@ -259,6 +287,8 @@ let isStringy value =
     | CALL c-> runtimeError "TBD"
     | INSTANCE i-> false
     | CLASS c -> false
+    | METHOD m -> false
+    | FUNCTION f -> false
 
 let isTruthy value =
     match value with
@@ -269,6 +299,8 @@ let isTruthy value =
     | INSTANCE i -> false
     | CLASS c -> false
     | CALL c -> runtimeError "TBD"
+    | METHOD m -> runtimeError "TBD"
+    | FUNCTION f -> runtimeError "TBD"
 
 let isEqual left right =
     match left, right with
@@ -289,7 +321,9 @@ let negative value =
     | CALL f -> runtimeError "- operator does not work on a FUNCTION"
     | INSTANCE i -> runtimeError "- operator does not work on an INSTANCE"
     | CLASS c -> runtimeError "- operator does not work on an CLASS"
-
+    | METHOD m -> runtimeError "- operator does not work on an METHOD"
+    | FUNCTION f -> runtimeError "- operator does not work on an FUNCTION"
+    
 
 
 // Visitor for expressions
@@ -399,6 +433,20 @@ let rec evalExpression (e:expr) (env:Environment) =
                                      
                         | _ -> failwith (sprintf "Can only call functions and classes.: %A" floxFunction)
 
+        | GetExpr e-> let lit,env' = evalExpression e.object env
+                      let lit' = match lit with
+                                  | INSTANCE inst -> getField inst e.id
+                                                    
+                                  | _ -> failwith "Only instances have properties"
+                      lit', env'
+        | SetExpr e-> let lit, env' = evalExpression e.object env
+                      match lit with
+                        | INSTANCE inst ->  let value, env'' = evalExpression e.value env'
+                                            setField inst e.id value |> ignore // TBD: Mutation
+                                            value, env''
+                        | _ -> failwith "Only instances have fields"
+
+
 and evalFor forStmt lastResult env =
     failwith "Should not get here, because for loop desugared into a while loop."
 and evalIf ifs lastResult env =
@@ -440,6 +488,10 @@ and execSingleStatement statement lastResult env =
                                                                                                        define name value env'  
                                 | Stmt.Variable {name=name; initializer=Some(expr.CallExpr e)} ->   let value, env' = evalExpression (CallExpr e) env
                                                                                                     define name value env'  
+                                | Stmt.Variable {name=name; initializer=Some(expr.GetExpr e)} ->   let value, env' = evalExpression (GetExpr e) env
+                                                                                                   define name value env'  
+                                | Stmt.Variable {name=name; initializer=Some(expr.SetExpr e)} ->   let value, env' = evalExpression (SetExpr e) env
+                                                                                                   define name value env'  
                                 | Stmt.Block stms ->    // Exec more statements in child context. (TBD This is much nicer than book!)
                                                         let env1 = pushNewScope env
                                                         let lit,env2 = execStatements stms NIL env1
@@ -470,9 +522,11 @@ and execSingleStatement statement lastResult env =
                                 | Stmt.ReturnStmt returnStmt -> // We return values back through call stack instead of THROW that book uses.
                                                                 evalExpression returnStmt.value env
                                 | Stmt.Class classStmt ->  let lit, env' = define classStmt.name NIL env
-                                                           let klass = CLASS( { id = classStmt.name.name; methods=[]; arity=0 })
-                                                           assignValue klass env' classStmt.name // TBD: In book returned null (lit)
+                                                           let methods = classStmt.methods |> Seq.map (fun f-> f.id.name, { closure = env'; method = f; }) |> Map.ofSeq
 
+                                                           let klass = CLASS( { id = classStmt.name.name; methods=methods; arity=0 })
+                                                           assignValue klass env' classStmt.name // TBD: In book returned null (lit)
+                                                           
                                 | _ ->failwith "Not implemented"
 
 
@@ -490,7 +544,7 @@ and executeBlock( statements: Stmt list)  (closure:Environment) =
     execStatements statements NIL closure
 
 and callConstructor (c:loxClass) (args:Literal list) (envIn:Environment) : Literal * Environment =
-    let instance = INSTANCE { klass = c } // TBD
+    let instance = INSTANCE { klass = c; fields = emptyMap() } // TBD
     instance, envIn
 
 // TBD: I think I have the definition of ARGS and PARAMs reversed.

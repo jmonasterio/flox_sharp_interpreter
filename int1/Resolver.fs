@@ -112,6 +112,8 @@ let rec resolveExpression (e:expr) (ctx:ResolverContext) : ResolverContext =
                             //|> beginScope
                             |> resolveArgumentExpressions args
                             //|> endScope
+        | GetExpr e -> ctx |> resolveExpression e.object
+        | SetExpr e -> ctx |> resolveExpression e.value |> resolveExpression e.object
                             
                             
 
@@ -149,6 +151,8 @@ let rec resolveSingleStatement statement (ctx:ResolverContext) : ResolverContext
                                 | Stmt.Block stmts ->   ctx |> beginScope 
                                                             |> resolveStatements stmts
                                                             |> endScope 
+                                | Stmt.Variable {name=name;initializer=Some(expr.GetExpr e)} ->  visitVariableStmt ( GetExpr e) name ctx 
+                                | Stmt.Variable {name=name;initializer=Some(expr.SetExpr e)} ->  visitVariableStmt ( SetExpr e) name ctx 
 #if OLD
                                 | Stmt.FunctionBody stmts -> ctx |> resolveStatements stmts // Funciton body not treated as a block in original.
 #endif
@@ -164,18 +168,27 @@ let rec resolveSingleStatement statement (ctx:ResolverContext) : ResolverContext
                                                                 |> resolveSingleStatement whileStmt.body
                                 | Stmt.FunctionStmt funcStmt ->     ctx |> declare funcStmt.id
                                                                         |> define funcStmt.id 
-                                                                        |> resolveFunction funcStmt
+                                                                        |> resolveFunction funcStmt functionKind.FUNCTION
                                 | Stmt.ReturnStmt returnStmt -> // We return values back through call stack instead of THROW that book uses.
                                                                 if( ctx.enclosingFunction = IN_FUNCTION) then
                                                                     ctx |> resolveExpression ( returnStmt.value ) 
                                                                 else
                                                                     failwith "Cannot return from top-level code"
-                                | Stmt.Class cls ->    ctx |> declare cls.name 
+                                | Stmt.Class cls ->    let rec addMethod lst kind ctx = // TBD: Isn't this just  FOLD?
+                                                          match lst with
+                                                          | [] -> ctx
+                                                          | meth::xs -> ctx |> resolveFunction meth kind 
+                                                                            |> addMethod xs kind 
+                                
+                                                       ctx |> declare cls.name 
                                                            |> define cls.name
                                                            |> resolveLocal cls.name
+                                                           //|> addMethod cls.methods  METHOD
+                                                           |> List.foldBack (fun meth -> resolveFunction meth functionKind.METHOD) cls.methods
+
                                 | _ -> failwith "unknown stament type"
 
-and resolveFunction (f:function_statement) ctx =
+and resolveFunction (f:function_statement) (kind:functionKind)  ctx =
     let currentFunction = ctx.enclosingFunction // See 11.5.1: Detecting return outside of function.
     let ctx' = { ctx with enclosingFunction = IN_FUNCTION }
     let ctx'' = ctx'    |> beginScope 

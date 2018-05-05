@@ -118,6 +118,9 @@ type expr =
     | AssignExpr of assign
     | LogicalExpr of logical
     | CallExpr of calling
+    | GetExpr of getter // Property access 12.3.1
+    | SetExpr of setter // Property access 12.3.2
+    
 
     //| Expression of expr
 
@@ -138,6 +141,9 @@ and unary =
     | UNARY of unary_operator * expr // TBD: Does not match book.
     | PRIMARY of primary_expr // <-- Without this we never "FINISH".
 and assign = { id:identifier_terminal; value:expr; guid: UniqueId} // name * value  // TBD: Book used a token instead of identifier terminal
+and getter = { object:expr; id:identifier_terminal}
+and setter = { object:expr; id:identifier_terminal; value:expr}
+
 #if OLD
 and multiplication = unary * zeroOrMore< mul_operator * unary>
 
@@ -435,8 +441,14 @@ and call ctx =
                     ctx', CallExpr (ex, arguments) // Break recursion
             
 
-    match matchParser ctx' [LEFT_PAREN] with
-    | ctx'', { matched = Some(_) } ->  addArguments ctx'' ex []
+    match matchParser ctx' [LEFT_PAREN;DOT] with
+    | ctx'', { matched = Some(tok) } ->  match tok.tokenType with 
+                                         | TokenType.LEFT_PAREN -> addArguments ctx'' ex []
+                                         | TokenType.DOT -> let ctx''', name = consume ctx'' TokenType.IDENTIFIER "Expect property name after '.'."
+                                                            let expr = GetExpr( { object=ex; id={ name = name.lexeme; guid= newGuid() }})
+                                                            ctx''',expr
+
+                                         | _ -> failwith "Unexpected case"
     | ctx'', { matched = None } -> ctx'', ex // Expression
 
  // Have to use "AND" below because expression is circular.
@@ -527,6 +539,9 @@ and assignment ctx =
                 | IDENTIFIER ii -> 
                     ctx''', AssignExpr { id = ii; value= value; guid = newGuid() }
                 | _ -> failwith "Unsupported"
+            | GetExpr g ->
+                // What we thought was a getExpr is actually a SetExpr because we found an assignement.
+                ctx''', SetExpr { id = g.id; value = value; object = g.object}
             | _ ->  let equals = previous ctx'' // This gets printed on error.
                     failwith (sprintf "Invalid assignment target %A" equals)
 
@@ -588,6 +603,7 @@ let varDeclaration ctx =
 
 
 type functionKind =
+    | NONE
     | FUNCTION
     | METHOD
     
