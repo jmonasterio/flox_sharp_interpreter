@@ -120,6 +120,7 @@ type expr =
     | CallExpr of calling
     | GetExpr of getter // Property access 12.3.1
     | SetExpr of setter // Property access 12.3.2
+//    | ThisExpr 
     
 
     //| Expression of expr
@@ -136,7 +137,7 @@ and primary_expr =
     | BOOL of boolean_terminal
     | NIL //of nil_terminal
     | IDENTIFIER of identifier_terminal
-    | THIS 
+    | THIS of identifier_terminal
 and unary = 
     | UNARY of unary_operator * expr // TBD: Does not match book.
     | PRIMARY of primary_expr // <-- Without this we never "FINISH".
@@ -250,7 +251,7 @@ let rec prettyPrint (e:expr)  =
                             | BOOL b -> printfn "%A" b.value
                             | NIL -> printfn "NIL"
                             | IDENTIFIER ii -> printfn "%s" ii.name
-                            | THIS -> printfn "THIS"
+                            | THIS tt -> printfn "THIS"
         | GroupingExpr e ->    printf "("
                                prettyPrint e
                                printf ")"
@@ -263,6 +264,7 @@ let rec prettyPrint (e:expr)  =
         | CallExpr c -> printfn "%A" c
         | GetExpr g -> printfn "%A" g
         | SetExpr s -> printfn "%A" s
+ //       | ThisExpr -> printfn "THIS"
         //| _ -> failwith "Not expected."
 
 
@@ -409,7 +411,8 @@ let rec primary ctx =
             let result = GroupingExpr ex
             result, ctx'''
         | TokenType.THIS ->
-            let result = PrimaryExpr ( NIL ) // TBD: In book was LiteralExpr
+            let prevTok = (previous ctx')
+            let result = PrimaryExpr ( THIS { name = "this"; guid = newGuid()}) // ThisExpr
             result, ctx' // TBD
         | TokenType.IDENTIFIER ->
             let prevTok = (previous ctx')

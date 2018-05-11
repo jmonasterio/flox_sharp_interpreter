@@ -81,15 +81,50 @@ and loxFunction =
         id: identifier_terminal
     }
 
-let findMethod (inst:loxInstance) (id:identifier_terminal) =
-    inst.klass.methods.TryFind id.name 
+
+let rec wrapClosure (env:Environment) (closureKey:ClosureKey) =
+    if closureKey = -1 then
+        env
+    else if env.closures.ContainsKey closureKey then
+        let clos = (env.closures.Item closureKey)
+        { env with localScopes = clos }
+    else failwith (sprintf "Cannot find closureKey. For %A" closureKey)
+
+let define (id:identifier_terminal) value (env:Environment) =
+    let scope = env.localScopes.Head
+    let newMap = scope.values.Add(id.name, value)
+    let newScope = { scope with values = newMap }
+    // TBD: Check for out of range
+    let newScopeList = List.mapi (fun i x -> if i = 0 then newScope else x) env.localScopes
+    //printfn "%A" newScopeList
+    value, { env with localScopes = newScopeList }
+
+let makeEnvWithClosure funcStmt env=
+    let (c:loxCallable) = { decl = DECL funcStmt; closureKey = funcStmt.id.guid }
+    let lit,env2 = define funcStmt.id (CALL c) env
+    let env3 = { env2 with closures = env2.closures.Add( funcStmt.id.guid, env2.localScopes) } 
+    lit,env3
+
+let bind (method:loxFunction) (instance:loxInstance) (env:Environment)   =
+    let closureKey = method.method.closureKey
+    let closure = wrapClosure env closureKey
+    let thisId =  { name = "this"; guid = newGuid() }
+    let lit, env' = define thisId (INSTANCE instance) closure
+    let env2 = { env' with closures = env'.closures.Add( method.id.guid, env'.localScopes) } // TBD: DUPish
+    //xxx
+
+    METHOD method, env2
+
+let findMethod (inst:loxInstance) (id:identifier_terminal) : loxFunction option =
+    inst.klass.methods.TryFind id.name
 
 // Can return a "field" or a "property" or a "method".
-let getField (inst:loxInstance) (id:identifier_terminal) =
+let getField (inst:loxInstance) (id:identifier_terminal) (env:Environment)  =
     match inst.fields.TryFind id.name with
-    | Some(lit) -> lit
+    | Some(lit) -> lit, env
     | None -> match findMethod inst id with
-                | Some(meth) -> METHOD meth
+                | Some(meth) -> let m', env' = bind meth inst env 
+                                m', env'
                 | None -> failwith (sprintf "Undefined property: %A" id.name)
 
 let setField (inst:loxInstance) (id:identifier_terminal) (value:Literal) =
@@ -164,13 +199,6 @@ let rec lookupVariable (id:identifier_terminal) (   env:Environment) : Literal =
     lookupVariableInScope foundScope id 
                             
 
-let rec wrapClosure (env:Environment) (closureKey:ClosureKey) =
-    if closureKey = -1 then
-        env
-    else if env.closures.ContainsKey closureKey then
-        let clos = (env.closures.Item closureKey)
-        { env with localScopes = clos }
-    else failwith (sprintf "Cannot find closureKey. For %A" closureKey)
 
                     
 #if OLD
@@ -220,14 +248,6 @@ let assignValue value env (id:identifier_terminal) =
     | None -> value, assignGlobal id value env
 
 
-let define (id:identifier_terminal) value (env:Environment) =
-    let scope = env.localScopes.Head
-    let newMap = scope.values.Add(id.name, value)
-    let newScope = { scope with values = newMap }
-    // TBD: Check for out of range
-    let newScopeList = List.mapi (fun i x -> if i = 0 then newScope else x) env.localScopes
-    //printfn "%A" newScopeList
-    value, { env with localScopes = newScopeList }
 
 let defineGlobal (id:identifier_terminal) value (env:Environment) =
     let scope = env.globalScope
@@ -325,11 +345,7 @@ let negative value =
     | METHOD m -> runtimeError "- operator does not work on an METHOD"
     | FUNCTION f -> runtimeError "- operator does not work on an FUNCTION"
     
-let makeEnvWithClosure funcStmt env=
-    let (c:loxCallable) = { decl = DECL funcStmt; closureKey = funcStmt.id.guid }
-    let lit,env2 = define funcStmt.id (CALL c) env
-    let env3 = { env2 with closures = env2.closures.Add( funcStmt.id.guid, env2.localScopes) } 
-    lit,env3
+
 
 
 // Visitor for expressions
@@ -402,7 +418,7 @@ let rec evalExpression (e:expr) (env:Environment) =
                             | Parser.BOOL b -> BOOL b.value, env
                             | Parser.NIL -> NIL, env
                             | Parser.IDENTIFIER i -> (lookupVariable i env), env
-                            | Parser.THIS -> NUMBER 0.0, env // TBD
+                            | Parser.THIS t -> lookupVariable t env, env
         | GroupingExpr e ->    evalExpression e env
         | LogicalExpr e -> let left,op,right = e    
                            let leftValue, env' = evalExpression left env
@@ -441,11 +457,10 @@ let rec evalExpression (e:expr) (env:Environment) =
                         | _ -> failwith (sprintf "Can only call functions and classes.: %A" floxFunction)
 
         | GetExpr e-> let lit,env' = evalExpression e.object env
-                      let lit' = match lit with
-                                  | INSTANCE inst -> getField inst e.id
-                                                    
-                                  | _ -> failwith "Only instances have properties"
-                      lit', env'
+                      let lit',env'' = match lit with
+                                          | INSTANCE inst -> getField inst e.id env'
+                                          | _ -> failwith "Only instances have properties"
+                      lit', env''
         | SetExpr e-> let lit, env' = evalExpression e.object env
                       match lit with
                         | INSTANCE inst ->  let value, env'' = evalExpression e.value env'

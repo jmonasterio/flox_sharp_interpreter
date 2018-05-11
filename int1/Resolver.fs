@@ -66,9 +66,14 @@ let define (id:identifier_terminal) ctx =
     | (x:ScopeMap)::xs -> let newHead = x.Add( id.name, DEFINED)
                           { ctx with scopes = newHead::xs }
 
+let addThisToScope ctx = 
+    let thisId = { name = "this"; guid = newGuid() }
+    ctx |> declare thisId // Different from book 12.5
+        |> define thisId
+
         
 let visitVariableExpr (id: identifier_terminal) (ctx:ResolverContext) : ResolverContext =
-    ctx |> resolveLocal id  /// THIS IS THE PROBLEM.
+    ctx |> resolveLocal id 
 
 
     
@@ -88,16 +93,9 @@ let rec resolveExpression (e:expr) (ctx:ResolverContext) : ResolverContext =
                                 | PRIMARY p -> resolveExpression (PrimaryExpr p) ctx
         | PrimaryExpr e ->  match e with
                                     | Parser.IDENTIFIER id -> // TBD: In book, this is a separate varaible expression.
-#if NO_WORKEY
-                                                                match ctx.scopes with
-                                                                                        | x::xs -> if x.ContainsKey(id.name) && (x.Item(id.name) = DECLARED) then
-                                                                                                        failwith ( sprintf "Cannot read var in it's own initializer: %A" e)
-                                                                                                    else 
-                                                                                                        ()
-                                                                                        | []-> ()
-#endif
                                                                 visitVariableExpr id ctx
 
+                                    | Parser.THIS t -> visitVariableExpr t ctx
                                     | _ -> ctx //easiest of all
         | GroupingExpr e ->   ctx |> resolveExpression e
         | LogicalExpr e ->  let left,op,right = e    
@@ -114,6 +112,7 @@ let rec resolveExpression (e:expr) (ctx:ResolverContext) : ResolverContext =
                             //|> endScope
         | GetExpr e -> ctx |> resolveExpression e.object
         | SetExpr e -> ctx |> resolveExpression e.value |> resolveExpression e.object
+  //      | ThisExpr -> ctx |> resolveLocal ({name="this"; guid=newGuid() }) 
                             
                             
 
@@ -183,10 +182,13 @@ let rec resolveSingleStatement statement (ctx:ResolverContext) : ResolverContext
                                                        ctx |> declare cls.name 
                                                            |> define cls.name
                                                            |> resolveLocal cls.name
+                                                           |> beginScope
+                                                           |> addThisToScope
                                                            //|> addMethod cls.methods  METHOD
                                                            |> List.foldBack (fun meth -> resolveFunction meth functionKind.METHOD) cls.methods
+                                                           |> endScope
 
-                                | _ -> failwith "unknown stament type"
+                                | _ -> failwith "unknown statement type"
 
 and resolveFunction (f:function_statement) (kind:functionKind)  ctx =
     let currentFunction = ctx.enclosingFunction // See 11.5.1: Detecting return outside of function.
