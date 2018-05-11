@@ -1,3 +1,40 @@
+print "TEST#11";
+class DevonshireCream {
+  serveOn() {
+    return "Scones";
+  }
+}
+
+print DevonshireCream; // Prints "DevonshireCream".
+
+
+print "TEST#12";
+class Bagel {}
+var bagel = Bagel();
+print bagel; // Prints "Bagel instance".
+
+print "TEST#13";
+class Breakfast {
+  cook() {
+    print "Eggs a-fryin'!";
+  }
+
+  serve(who) {
+    print "Enjoy your breakfast, " + who + ".";
+  }
+}
+
+print "TEST #14";
+var bk = Breakfast();
+bk.test = 1;
+print bk.test;
+bk.test = 2;
+print bk.test;
+
+print "TEST #15";
+var object = Breakfast();
+var m = object.cook;
+m();
 
 
 print "TEST#16";

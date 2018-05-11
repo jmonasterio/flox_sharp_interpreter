@@ -2,6 +2,7 @@
 //open Scanner
 open Parser
 open System.Linq
+open Scanner
 
 //type UniqueId = System.Guid // Added by the resolver pass, later.
 
@@ -76,8 +77,8 @@ and loxInstance = // 12.2
 
 and loxFunction =
     {
-        method: function_statement
-        closure: Environment
+        method: loxCallable
+        id: identifier_terminal
     }
 
 let findMethod (inst:loxInstance) (id:identifier_terminal) =
@@ -245,8 +246,8 @@ let toString lit =
                                 | NATIVE name -> sprintf "Native(%A)" name
                     | CLASS c -> c.id
                     | INSTANCE i -> i.klass.id + " instance"
-                    | METHOD m -> m.method.id.name + " method"
-                    | FUNCTION f -> f.method.id.name + "function"
+                    | METHOD m -> m.id.name + " method"
+                    | FUNCTION f -> f.id.name + "function"
 
 let CNUMBER value : float =
     match value with
@@ -269,8 +270,8 @@ let CSTRING value : string =
     | CALL c-> runtimeError "TBD"
     | CLASS c-> c.id
     | INSTANCE i -> i.klass.id + " instance"
-    | METHOD m -> m.method.id.name + " method"
-    | FUNCTION f -> f.method.id.name + "function"
+    | METHOD m -> m.id.name + " method"
+    | FUNCTION f -> f.id.name + "function"
 
 let isNumbery value =
     match value with
@@ -324,6 +325,11 @@ let negative value =
     | METHOD m -> runtimeError "- operator does not work on an METHOD"
     | FUNCTION f -> runtimeError "- operator does not work on an FUNCTION"
     
+let makeEnvWithClosure funcStmt env=
+    let (c:loxCallable) = { decl = DECL funcStmt; closureKey = funcStmt.id.guid }
+    let lit,env2 = define funcStmt.id (CALL c) env
+    let env3 = { env2 with closures = env2.closures.Add( funcStmt.id.guid, env2.localScopes) } 
+    lit,env3
 
 
 // Visitor for expressions
@@ -369,24 +375,24 @@ let rec evalExpression (e:expr) (env:Environment) =
                                 let leftValue, env' = evalExpression left env
                                 let rightValue, env'' = evalExpression right env'
                                 match op with
-                                | ADD_OP MINUS  -> NUMBER (CNUMBER leftValue - CNUMBER rightValue), env''
+                                | ADD_OP add_operator.MINUS  -> NUMBER (CNUMBER leftValue - CNUMBER rightValue), env''
                                 | MULTIPLY_OP DIV -> NUMBER (CNUMBER leftValue / CNUMBER rightValue), env''
                                 | MULTIPLY_OP MUL -> NUMBER (CNUMBER leftValue * CNUMBER rightValue), env''
-                                | ADD_OP PLUS -> if isStringy leftValue then
-                                                     STRING( CSTRING leftValue + CSTRING rightValue), env''
-                                                 else 
-                                                     NUMBER( CNUMBER leftValue + CNUMBER rightValue), env''
+                                | ADD_OP add_operator.PLUS -> if isStringy leftValue then
+                                                                     STRING( CSTRING leftValue + CSTRING rightValue), env''
+                                                                 else 
+                                                                     NUMBER( CNUMBER leftValue + CNUMBER rightValue), env''
                                 | COMPARISON_OP LT -> BOOL( CNUMBER leftValue < CNUMBER rightValue), env''
                                 | COMPARISON_OP GT -> BOOL( CNUMBER leftValue > CNUMBER rightValue), env''
                                 | COMPARISON_OP LTE -> BOOL( CNUMBER leftValue <= CNUMBER rightValue), env''
                                 | COMPARISON_OP GTE -> BOOL( CNUMBER leftValue >= CNUMBER rightValue), env''
                                 | EQUALITY_OP NOT_EQUALS -> BOOL( not( isEqual leftValue rightValue)), env''
-                                | EQUALITY_OP EQUAL_EQUAL -> BOOL (isEqual leftValue rightValue), env''
+                                | EQUALITY_OP equal_operator.EQUAL_EQUAL -> BOOL (isEqual leftValue rightValue), env''
                                 //| _ -> runtimeError ( sprintf" Unsupported operator: %A" op)
         | UnaryExpr e ->        match e with 
                                 | UNARY (op,right) ->   let rv, env' = evalExpression right env
                                                         let lit = match op with
-                                                                    | BANG -> BOOL (not (isTruthy rv))
+                                                                    | unary_operator.BANG -> BOOL (not (isTruthy rv))
                                                                     | NEGATIVE -> NUMBER (- CNUMBER rv)
                                                         (lit,env')
                                 | PRIMARY p -> evalExpression (PrimaryExpr p) env
@@ -401,17 +407,17 @@ let rec evalExpression (e:expr) (env:Environment) =
         | LogicalExpr e -> let left,op,right = e    
                            let leftValue, env' = evalExpression left env
                            match op with
-                                | AND -> if not (isTruthy leftValue) then  
-                                            leftValue, env'
-                                         else
-                                            let rightValue, env'' = evalExpression right env'
-                                            rightValue, env''
+                                | logical_operator.AND -> if not (isTruthy leftValue) then  
+                                                            leftValue, env'
+                                                          else
+                                                            let rightValue, env'' = evalExpression right env'
+                                                            rightValue, env''
 
-                                | OR -> if isTruthy leftValue then  
-                                            leftValue, env'
-                                        else
-                                            let rightValue, env'' = evalExpression right env'
-                                            rightValue, env''
+                                | logical_operator.OR -> if isTruthy leftValue then  
+                                                            leftValue, env'
+                                                         else
+                                                            let rightValue, env'' = evalExpression right env'
+                                                            rightValue, env''
         | CallExpr e -> let calleeName, args = e
                         
                         // Evaluate parameters in order
@@ -429,6 +435,7 @@ let rec evalExpression (e:expr) (env:Environment) =
 
                         match floxFunction with 
                         | CALL c -> callFunction c evaluatedArgs env2
+                        | METHOD m -> callFunction m.method evaluatedArgs env2
                         | CLASS c -> callConstructor c evaluatedArgs env2
                                      
                         | _ -> failwith (sprintf "Can only call functions and classes.: %A" floxFunction)
@@ -512,20 +519,19 @@ and execSingleStatement statement lastResult env =
                                                                     //      for each funcStmt.id
                                                                     // TBD: If found about about "let rec" with lazy, after I did all this.
                                                                     //  I can probably get rid of closures collection.
-
-                                                                    let (c:loxCallable) = { decl = DECL funcStmt; closureKey = funcStmt.id.guid }
-                                                                    let lit,env2 = define funcStmt.id (CALL c) env
-                                                                    let env3 = { env2 with closures = env2.closures.Add( funcStmt.id.guid, env2.localScopes) } 
-                                                                    lit,env3
+                                                                    makeEnvWithClosure funcStmt env
 
 
                                 | Stmt.ReturnStmt returnStmt -> // We return values back through call stack instead of THROW that book uses.
                                                                 evalExpression returnStmt.value env
                                 | Stmt.Class classStmt ->  let lit, env' = define classStmt.name NIL env
-                                                           let methods = classStmt.methods |> Seq.map (fun f-> f.id.name, { closure = env'; method = f; }) |> Map.ofSeq
+                                                           
+                                                           let methods = classStmt.methods |> Seq.map (fun funcStmt -> funcStmt.id.name, { method = { decl = DECL funcStmt; closureKey = funcStmt.id.guid }; id=funcStmt.id }) |> Map.ofSeq
+                                                           let env'' = env' |> List.foldBack (fun funcStmt ee-> let lit,e1 =makeEnvWithClosure funcStmt ee
+                                                                                                                e1 ) classStmt.methods
 
                                                            let klass = CLASS( { id = classStmt.name.name; methods=methods; arity=0 })
-                                                           assignValue klass env' classStmt.name // TBD: In book returned null (lit)
+                                                           assignValue klass env'' classStmt.name // TBD: In book returned null (lit)
                                                            
                                 | _ ->failwith "Not implemented"
 

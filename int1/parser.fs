@@ -261,6 +261,8 @@ let rec prettyPrint (e:expr)  =
                                 printfn "%A" op
                                 prettyPrint right
         | CallExpr c -> printfn "%A" c
+        | GetExpr g -> printfn "%A" g
+        | SetExpr s -> printfn "%A" s
         //| _ -> failwith "Not expected."
 
 
@@ -386,33 +388,33 @@ let rec primary ctx =
         match token.tokenType with
         | FALSE ->
             let result = PrimaryExpr ( BOOL { value= false}) // TBD: In book was LiteralExpr
-            ctx', result
+            result, ctx'
         | TRUE ->
             let result = PrimaryExpr ( BOOL { value= true}) // TBD: In book was LiteralExpr
-            ctx', result
+            result, ctx'
         | TokenType.NIL ->
             let result = PrimaryExpr ( NIL ) // TBD: In book was LiteralExpr
-            ctx', result
+            result, ctx'
         | TokenType.NUMBER ->
             let prevTok = (previous ctx')
             let result = PrimaryExpr ( NUMBER { value= derefNumber prevTok.literal }) // TBD: In book was LiteralExprLiteralExpr (previous ctx).literal
-            ctx', result
+            result, ctx'
         | TokenType.STRING ->
             let prevTok = (previous ctx')
             let result = PrimaryExpr ( STRING { value= derefString prevTok.literal}) // TBD: In book was LiteralExprLiteralExpr (previous ctx).literal
-            ctx', result
+            result, ctx'
         | TokenType.LEFT_PAREN ->
             let ctx'', ex = expression ctx'
             let ctx''', token = consume ctx'' RIGHT_PAREN "Except ')' after expression."
             let result = GroupingExpr ex
-            ctx''', result
+            result, ctx'''
         | TokenType.THIS ->
             let result = PrimaryExpr ( NIL ) // TBD: In book was LiteralExpr
-            ctx', result // TBD
+            result, ctx' // TBD
         | TokenType.IDENTIFIER ->
             let prevTok = (previous ctx')
             let result = PrimaryExpr( IDENTIFIER { name = prevTok.lexeme; guid = newGuid() }) // TBD: Maybe makes sense for identifier to be a literal.
-            ctx', result
+            result, ctx'
         | _ -> 
             let newCtx = errorP ctx "Expect expression not in set..."
             failwith "Expect expression not in set..."
@@ -422,7 +424,6 @@ let rec primary ctx =
 
 
 and call ctx =
-    let ctx', ex = primary ctx
 
     let rec addArguments ctx callee (arguments: expr list) = // TBD: Was called finishCall in book
 
@@ -434,22 +435,25 @@ and call ctx =
                         addArguments ctx'' callee ( arg :: arguments  )
                     | ctx'', { matched = None } -> 
                         let ctx''', token = consume ctx'' RIGHT_PAREN "Expected ')' after arguments."
-                        ctx''', CallExpr (ex, arg :: arguments) // Another break for recursion 
+                        CallExpr (callee, arg :: arguments), ctx'''  // Another break for recursion 
         else
                     // No params (or end of input).
                     let ctx', token = consume ctx RIGHT_PAREN "Expected ')' after no arguments."
-                    ctx', CallExpr (ex, arguments) // Break recursion
+                    CallExpr (callee, arguments), ctx'  // Break recursion
             
+    let rec walkGetters (ex:expr) (ctx:ParserContext) : expr * ParserContext =
+        match matchParser ctx [LEFT_PAREN;DOT] with
+        | ctx'', { matched = Some(tok) } ->  match tok.tokenType with 
+                                             | TokenType.LEFT_PAREN -> let ctx''',ex2 = addArguments ctx'' ex []
+                                                                       walkGetters ctx''' ex2
+                                             | TokenType.DOT -> let ctx''', name = consume ctx'' TokenType.IDENTIFIER "Expect property name after '.'."
+                                                                let expr = GetExpr( { object=ex; id={ name = name.lexeme; guid= newGuid() }})
+                                                                walkGetters expr ctx'''
+                                             | _ -> ex,ctx'' // TBD: I think this case is impossible.
+        | ctx'', { matched = None } -> ex, ctx'' // Expression
 
-    match matchParser ctx' [LEFT_PAREN;DOT] with
-    | ctx'', { matched = Some(tok) } ->  match tok.tokenType with 
-                                         | TokenType.LEFT_PAREN -> addArguments ctx'' ex []
-                                         | TokenType.DOT -> let ctx''', name = consume ctx'' TokenType.IDENTIFIER "Expect property name after '.'."
-                                                            let expr = GetExpr( { object=ex; id={ name = name.lexeme; guid= newGuid() }})
-                                                            ctx''',expr
-
-                                         | _ -> failwith "Unexpected case"
-    | ctx'', { matched = None } -> ctx'', ex // Expression
+    let ex1, ctx' = primary ctx
+    walkGetters ex1 ctx'
 
  // Have to use "AND" below because expression is circular.
 and unary ctx : ParserContext* expr   =
@@ -468,7 +472,8 @@ and unary ctx : ParserContext* expr   =
         | _ -> failwith "Invalid unary operator"
 
     | ctx', { matched = None } ->
-        call ctx'
+        let result, ctx2 = call ctx' // TBD results in this file are all backwards so chaining doesn't work.
+        ctx2,result 
 and moreLogical lstTokens parentFunc (ctx, ex1) =
      //let ctx', expr = parentFunc ctx
      let ctx' = ctx

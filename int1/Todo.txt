@@ -1,4 +1,6 @@
-﻿
+﻿If parsers has any errors, we should not go to resolver, etc.
+
+
 InterpreterContext
    - ScopesMap
    - Can I lookup an expression.
