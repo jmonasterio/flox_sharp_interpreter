@@ -13,22 +13,24 @@ type BindingSteps = // BOOK used a boolean here.
 type ScopeMap = Map<IdentifierName,BindingSteps>
 type ScopeMapList = ScopeMap list
 
-type functionType =
-    | IN_FUNCTION
-    | IN_NONE
+type classType =
+    | IN_CLASS
+    | NO_CLASS
     
 
 type ResolverContext = {
     scopes: ScopeMapList
     distanceMap : ScopeDistanceMap
-    enclosingFunction : functionType
+    enclosingFunction : functionKind // TBD: Maybe put functionType and classType into a struct
+    enclosingClass: classType
     }
 
 let initResolverContext =
     {
     scopes = [[] |> Map.ofSeq] 
     distanceMap = [] |> Map.ofSeq
-    enclosingFunction = IN_NONE
+    enclosingFunction = functionKind.NONE
+    enclosingClass = NO_CLASS
     }
 
 // Calculate the distance to the variable an store in a map
@@ -95,7 +97,14 @@ let rec resolveExpression (e:expr) (ctx:ResolverContext) : ResolverContext =
                                     | Parser.IDENTIFIER id -> // TBD: In book, this is a separate varaible expression.
                                                                 visitVariableExpr id ctx
 
-                                    | Parser.THIS t -> visitVariableExpr t ctx
+                                    | Parser.THIS t ->                               
+                                                        match ctx.enclosingFunction with
+                                                        | functionKind.NONE | functionKind.FUNCTION -> if ctx.enclosingClass = NO_CLASS then
+                                                                                                            failwith "Cannot use 'this' outside of a class."
+                                                        | _ -> () // No error
+                                                        //| functionKind.METHOD -> visitVariableExpr t ctx
+                                                        //| functionKind.INITIALIZER -> failwith "Cannot use 'this' in constructor." // I don't think book covered this case.
+                                                        visitVariableExpr t ctx
                                     | _ -> ctx //easiest of all
         | GroupingExpr e ->   ctx |> resolveExpression e
         | LogicalExpr e ->  let left,op,right = e    
@@ -134,6 +143,12 @@ let rec declareParams (p:identifier_terminal list) (ctx:ResolverContext) =
     | x::xs -> ctx |> declare x |> define x |> declareParams xs
     | _ -> ctx 
 
+let setInClass flag ctx = 
+    { ctx with enclosingClass = flag }
+
+let setInFunction flag ctx =
+    { ctx with enclosingFunction = flag }
+
 let rec resolveSingleStatement statement (ctx:ResolverContext) : ResolverContext =
             match statement with 
                                 | Stmt.Expression e -> ctx |> resolveExpression e
@@ -169,34 +184,49 @@ let rec resolveSingleStatement statement (ctx:ResolverContext) : ResolverContext
                                                                         |> define funcStmt.id 
                                                                         |> resolveFunction funcStmt functionKind.FUNCTION
                                 | Stmt.ReturnStmt returnStmt -> // We return values back through call stack instead of THROW that book uses.
-                                                                if( ctx.enclosingFunction = IN_FUNCTION) then
-                                                                    ctx |> resolveExpression ( returnStmt.value ) 
-                                                                else
-                                                                    failwith "Cannot return from top-level code"
-                                | Stmt.Class cls ->    let rec addMethod lst kind ctx = // TBD: Isn't this just  FOLD?
+                                                                match ctx.enclosingFunction with
+                                                                | functionKind.FUNCTION -> ctx |> resolveExpression ( returnStmt.value ) 
+                                                                | functionKind.METHOD -> ctx |> resolveExpression ( returnStmt.value ) 
+                                                                | functionKind.INITIALIZER -> failwith "Cannot return a value from an initializer."
+                                                                | functionKind.NONE -> failwith "Cannot return from top-level code"
+
+
+                                | Stmt.Class cls ->   
+                                                       #if OLD 
+                                                       let rec addMethod lst kind ctx = // TBD: Isn't this just  FOLD?
                                                           match lst with
                                                           | [] -> ctx
                                                           | meth::xs -> ctx |> resolveFunction meth kind 
                                                                             |> addMethod xs kind 
+                                                        #endif
                                 
-                                                       ctx |> declare cls.name 
+                                                       let enclosingClass =ctx.enclosingClass
+
+                                                       let calcFuncKind (funcStmt:function_statement) = match funcStmt.id.name with
+                                                                                                        | "init" -> functionKind.INITIALIZER // So we can error if initializer tries to return a value.
+                                                                                                        | _ -> functionKind.METHOD
+                                                       
+                                                       ctx |> setInClass IN_CLASS
+                                                           |> declare cls.name 
                                                            |> define cls.name
                                                            |> resolveLocal cls.name
                                                            |> beginScope
                                                            |> addThisToScope
                                                            //|> addMethod cls.methods  METHOD
-                                                           |> List.foldBack (fun meth -> resolveFunction meth functionKind.METHOD) cls.methods
+                                                           |> List.foldBack (fun meth -> resolveFunction meth (calcFuncKind meth)) cls.methods
                                                            |> endScope
+                                                           |> setInClass enclosingClass
 
                                 | _ -> failwith "unknown statement type"
 
 and resolveFunction (f:function_statement) (kind:functionKind)  ctx =
     let currentFunction = ctx.enclosingFunction // See 11.5.1: Detecting return outside of function.
-    let ctx' = { ctx with enclosingFunction = IN_FUNCTION }
-    let ctx'' = ctx'    |> beginScope 
+    let ctx'' = ctx     |> setInFunction kind
+                        |> beginScope 
                         |> declareParams f.parameters 
                         |> resolveSingleStatement f.body // This has a further scope, because I treat body like a block.
                         |> endScope
+                        |> setInFunction currentFunction
     {ctx'' with enclosingFunction = currentFunction }
 
 and resolveOptionalSingleStatement statement (ctx:ResolverContext) : ResolverContext =

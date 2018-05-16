@@ -614,7 +614,7 @@ type functionKind =
     | NONE
     | FUNCTION
     | METHOD
-    
+    | INITIALIZER
         
 // Desugar FOR loop into several statements (while loop) instead of changing interpreter.
 // This was just an example like in the book. This could be done in the Interperter

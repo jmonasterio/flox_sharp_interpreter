@@ -111,3 +111,30 @@ class Thing {
 var callback = Thing().getCallback();
 callback();
 
+print "TEST #18";
+//print this;
+//fun notAMethod() {
+//  print this;
+//}
+//return 0;
+
+print "TEST #19";
+class Foo {
+  init() {
+    print this;
+  }
+}
+
+var foo = Foo();
+print foo.init();
+
+//print "TEST #20";
+//class Foop {
+//  init() {
+//    return "something else";
+//  }
+//}
+//
+//var foo = Foop();
+//print foo.init();
+

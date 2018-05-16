@@ -57,7 +57,7 @@ and Environment =
 
 and loxCallable =
     {
-        //arity: int;  // TBD: Not like in book, we just calculate this when needed.
+        arity: int;  
         decl: decl_types;
         closureKey: ClosureKey;
     }
@@ -66,7 +66,6 @@ and loxClass = // 12.1
     {
         id: IdentifierName
         mutable methods: MethodMap
-        arity: int;
     }
 
 and loxInstance = // 12.2
@@ -79,7 +78,9 @@ and loxFunction =
     {
         method: loxCallable
         id: identifier_terminal
+        isInitializer: bool // TBD: Hate bools
     }
+
 
 
 let rec wrapClosure (env:Environment) (closureKey:ClosureKey) =
@@ -100,7 +101,7 @@ let define (id:identifier_terminal) value (env:Environment) =
     value, { env with localScopes = newScopeList }
 
 let makeEnvWithClosure funcStmt env=
-    let (c:loxCallable) = { decl = DECL funcStmt; closureKey = funcStmt.id.guid }
+    let (c:loxCallable) = { decl = DECL funcStmt; closureKey = funcStmt.id.guid; arity = funcStmt.parameters.Length }
     let lit,env2 = define funcStmt.id (CALL c) env
     let env3 = { env2 with closures = env2.closures.Add( funcStmt.id.guid, env2.localScopes) } 
     lit,env3
@@ -111,18 +112,24 @@ let bind (method:loxFunction) (instance:loxInstance) (env:Environment)   =
     let thisId =  { name = "this"; guid = newGuid() }
     let lit, env' = define thisId (INSTANCE instance) closure
     let env2 = { env' with closures = env'.closures.Add( method.id.guid, env'.localScopes) } // TBD: DUPish
-    //xxx
-
     METHOD method, env2
 
-let findMethod (inst:loxInstance) (id:identifier_terminal) : loxFunction option =
-    inst.klass.methods.TryFind id.name
+let findMethodOnClass (klass:loxClass) (name:IdentifierName) : loxFunction option =
+    klass.methods.TryFind name
+
+let findMethod (inst:loxInstance) (name:IdentifierName) : loxFunction option =
+    findMethodOnClass inst.klass name 
+
+let getArity (c:loxClass) =
+    match findMethodOnClass c "init" with
+                    | Some(initializer) -> initializer.method.arity
+                    | None -> 0
 
 // Can return a "field" or a "property" or a "method".
 let getField (inst:loxInstance) (id:identifier_terminal) (env:Environment)  =
     match inst.fields.TryFind id.name with
     | Some(lit) -> lit, env
-    | None -> match findMethod inst id with
+    | None -> match findMethod inst id.name with
                 | Some(meth) -> let m', env' = bind meth inst env 
                                 m', env'
                 | None -> failwith (sprintf "Undefined property: %A" id.name)
@@ -541,11 +548,11 @@ and execSingleStatement statement lastResult env =
                                                                 evalExpression returnStmt.value env
                                 | Stmt.Class classStmt ->  let lit, env' = define classStmt.name NIL env
                                                            
-                                                           let methods = classStmt.methods |> Seq.map (fun funcStmt -> funcStmt.id.name, { method = { decl = DECL funcStmt; closureKey = funcStmt.id.guid }; id=funcStmt.id }) |> Map.ofSeq
+                                                           let methods = classStmt.methods |> Seq.map (fun funcStmt -> funcStmt.id.name, { method = { decl = DECL funcStmt; closureKey = funcStmt.id.guid; arity = funcStmt.parameters.Length }; id=funcStmt.id; isInitializer = (funcStmt.id.name = "init") }) |> Map.ofSeq
                                                            let env'' = env' |> List.foldBack (fun funcStmt ee-> let lit,e1 =makeEnvWithClosure funcStmt ee
                                                                                                                 e1 ) classStmt.methods
 
-                                                           let klass = CLASS( { id = classStmt.name.name; methods=methods; arity=0 })
+                                                           let klass = CLASS( { id = classStmt.name.name; methods=methods })
                                                            assignValue klass env'' classStmt.name // TBD: In book returned null (lit)
                                                            
                                 | _ ->failwith "Not implemented"
@@ -565,8 +572,16 @@ and executeBlock( statements: Stmt list)  (closure:Environment) =
     execStatements statements NIL closure
 
 and callConstructor (c:loxClass) (args:Literal list) (envIn:Environment) : Literal * Environment =
-    let instance = INSTANCE { klass = c; fields = emptyMap() } // TBD
-    instance, envIn
+    let instance = { klass = c; fields = emptyMap() } // TBD
+
+    let lit, env' = match findMethod instance "init" with
+        | Some(initializer) -> let lit', env' = bind initializer instance envIn
+                               match lit' with 
+                               | METHOD m -> callFunction (m.method) args env'
+                               | _ -> failwith "Expected a method here."
+        | None -> NIL, envIn
+
+    INSTANCE instance, env' // TBD is this the right return value?
 
 // TBD: I think I have the definition of ARGS and PARAMs reversed.
 and callFunction (c:loxCallable) (args:Literal list) (envIn:Environment) : Literal  * Environment  =
@@ -614,7 +629,7 @@ let interpret (statements:Stmt list) (scopeDistanceMap: ScopeDistanceMap) : unit
         let env = initEnvironment scopeDistanceMap
 
         let clockIdentifier : identifier_terminal = { name = "clock"; guid = newGuid() }
-        let clock: loxCallable = { decl = NATIVE clockIdentifier; closureKey= -1;  }
+        let clock: loxCallable = { decl = NATIVE clockIdentifier; closureKey= -1; arity=0 }
         let clockLit = CALL clock 
         let funcLit,ctx' = defineGlobal clockIdentifier clockLit env
         let ctx'' = execStatements statements funcLit ctx'
