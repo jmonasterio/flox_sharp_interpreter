@@ -18,34 +18,6 @@ type boolean_terminal = { value: bool }
 
 type identifier_terminal = { name : IdentifierName; guid: UniqueId }
 
-
-
-#if OLD
-//type nil_terminal = NILTERMINAL
-
-type open_paren_terminal = OPEN
-type close_paren_terminal = CLOSE
-
-
-
-//type combOr<'t,'u> =
-//        | T of 't
-//        | U of 'u
-#endif
-
-#if OLD
-// *
-type zeroOrMore<'t> = 
-    | ZERO
-    | MORE of List<'t>
-
-// +
-type oneOrMore<'t> = List<'t>
-
-// ? 
-type oneOrNone<'t> = Option<'t>
-#endif
-
 // Operators
 
 //type assignment_operator = 
@@ -103,13 +75,6 @@ type expr =
 
 
 type expr =
-    // These are for order of operations
-#if OLD
-    | EqualityExpr of equality
-    | ComparisonExpr of comparison
-    | AdditionExpr of addition
-    | MultiplicationExpr of multiplication
-#endif
     // These are outputs
     | UnaryExpr of unary 
     | PrimaryExpr of primary_expr
@@ -120,10 +85,6 @@ type expr =
     | CallExpr of calling
     | GetExpr of getter // Property access 12.3.1
     | SetExpr of setter // Property access 12.3.2
-//    | ThisExpr 
-    
-
-    //| Expression of expr
 
 
 // TBD: These should all be structs instead of tuples!!
@@ -138,6 +99,7 @@ and primary_expr =
     | NIL //of nil_terminal
     | IDENTIFIER of identifier_terminal
     | THIS of identifier_terminal
+    | SUPER of identifier_terminal
 and unary = 
     | UNARY of unary_operator * expr // TBD: Does not match book.
     | PRIMARY of primary_expr // <-- Without this we never "FINISH".
@@ -180,7 +142,7 @@ and function_statement = { id: identifier_terminal; parameters: identifier_termi
     // Did if_statement as an example -- a little more self documenting. The matches must still be against a tuple.
 and for_statement =  Option<Stmt> * Option<expr> * Option<Stmt> * Stmt   // initializer * condition * increment * statement
 and var_statement = { name:identifier_terminal; initializer: Option<expr> } // TBD: Not in book.
-and class_decl = { name: identifier_terminal; methods: function_statement list }
+and class_decl = { name: identifier_terminal; superclass: identifier_terminal option; methods: function_statement list }
 
 #if FALSE
 let (^^) p q = not(p && q) && (p || q) // makeshift xor operator
@@ -252,6 +214,7 @@ let rec prettyPrint (e:expr)  =
                             | NIL -> printfn "NIL"
                             | IDENTIFIER ii -> printfn "%s" ii.name
                             | THIS tt -> printfn "THIS"
+                            | SUPER ss -> printfn "SUPER"
         | GroupingExpr e ->    printf "("
                                prettyPrint e
                                printf ")"
@@ -414,6 +377,12 @@ let rec primary ctx =
             let prevTok = (previous ctx')
             let result = PrimaryExpr ( THIS { name = "this"; guid = newGuid()}) // ThisExpr
             result, ctx' // TBD
+        | TokenType.SUPER ->
+            let prevTok = (previous ctx')
+            let ctx'', token = consume ctx' DOT "Expect superclass method name."
+            let result = PrimaryExpr( SUPER { name = "super"; guid = newGuid()}) 
+            result, ctx''
+
         | TokenType.IDENTIFIER ->
             let prevTok = (previous ctx')
             let result = PrimaryExpr( IDENTIFIER { name = prevTok.lexeme; guid = newGuid() }) // TBD: Maybe makes sense for identifier to be a literal.
@@ -786,7 +755,20 @@ and classDeclaration ctx =
     let ctx', name = consume ctx TokenType.IDENTIFIER "Expect class name."
     let id: identifier_terminal = { name = name.lexeme; guid = newGuid() } // TBD: Do I need a guid for classes?
 
-    let ctx2, token = consume ctx' TokenType.LEFT_BRACE "Expect '{' before class body."
+    let ctx0, matchedToken = matchParser ctx' [LESS]
+    let ctx1, optSuperclass = match matchedToken with
+    | { matched = Some(token)} -> 
+        match token.tokenType with 
+        | TokenType.LESS -> 
+                    let ctx1, name = consume ctx0 TokenType.IDENTIFIER "Expect superclass name."
+                    //let prevTok = (previous ctx0)
+                    let superclass = { name = name.lexeme; guid = newGuid() } // TBD: Was expr.Variable in book.
+                    ctx1, Some(superclass)
+    | _ -> ctx0, None
+
+
+
+    let ctx2, token = consume ctx1 TokenType.LEFT_BRACE "Expect '{' before class body."
     let rec addMethods ctx (methods: function_statement list) =
         if not (isAtEnd ctx) && not (check ctx TokenType.RIGHT_BRACE) then
             let ctx', method = functionDeclaration FUNCTION ctx // Methods do not have the "fun" keyword. (12.1)
@@ -796,7 +778,7 @@ and classDeclaration ctx =
 
     let ctx3, methods = addMethods ctx2 []
     let ctx4, token = consume ctx3 RIGHT_BRACE "Except '}' after expression."
-    ctx4, { name = id; methods = methods }
+    ctx4, { name = id; superclass = optSuperclass; methods = methods }
     
 
 

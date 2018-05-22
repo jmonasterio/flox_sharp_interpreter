@@ -66,6 +66,7 @@ and loxClass = // 12.1
     {
         id: IdentifierName
         mutable methods: MethodMap
+        superclass: loxClass option
     }
 
 and loxInstance = // 12.2
@@ -114,8 +115,14 @@ let bind (method:loxFunction) (instance:loxInstance) (env:Environment)   =
     let env2 = { env' with closures = env'.closures.Add( method.id.guid, env'.localScopes) } // TBD: DUPish
     METHOD method, env2
 
-let findMethodOnClass (klass:loxClass) (name:IdentifierName) : loxFunction option =
-    klass.methods.TryFind name
+let rec findMethodOnClass (klass:loxClass) (name:IdentifierName) : loxFunction option =
+    match klass.methods.TryFind name with 
+    | Some(meth) -> Some(meth)
+    | None -> match klass.superclass with
+                | Some(sc) -> match findMethodOnClass sc name with
+                                | Some(meth) -> Some(meth)
+                                | None -> None
+                | None -> None
 
 let findMethod (inst:loxInstance) (name:IdentifierName) : loxFunction option =
     findMethodOnClass inst.klass name 
@@ -552,8 +559,18 @@ and execSingleStatement statement lastResult env =
                                                            let env'' = env' |> List.foldBack (fun funcStmt ee-> let lit,e1 =makeEnvWithClosure funcStmt ee
                                                                                                                 e1 ) classStmt.methods
 
-                                                           let klass = CLASS( { id = classStmt.name.name; methods=methods })
-                                                           assignValue klass env'' classStmt.name // TBD: In book returned null (lit)
+                                                           let superLoxClass, env''' = 
+                                                               match classStmt.superclass with
+                                                               | None -> None, env''
+                                                               | Some( sc) -> let evSuperClass, env4 = evalExpression (PrimaryExpr (Parser.IDENTIFIER sc)) env''
+                                                                              match evSuperClass with
+                                                                              | Literal.CLASS c -> Some(c), env4
+                                                                              | _ -> failwith "Superclass must be a class."
+
+
+
+                                                           let klass = CLASS( { id = classStmt.name.name; methods=methods; superclass = superLoxClass })
+                                                           assignValue klass env''' classStmt.name // TBD: In book returned null (lit)
                                                            
                                 | _ ->failwith "Not implemented"
 
@@ -574,7 +591,8 @@ and executeBlock( statements: Stmt list)  (closure:Environment) =
 and callConstructor (c:loxClass) (args:Literal list) (envIn:Environment) : Literal * Environment =
     let instance = { klass = c; fields = emptyMap() } // TBD
 
-    let lit, env' = match findMethod instance "init" with
+    let lit, env' = 
+        match findMethod instance "init" with
         | Some(initializer) -> let lit', env' = bind initializer instance envIn
                                match lit' with 
                                | METHOD m -> callFunction (m.method) args env'

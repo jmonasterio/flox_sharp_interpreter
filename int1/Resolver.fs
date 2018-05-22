@@ -206,7 +206,8 @@ let rec resolveSingleStatement statement (ctx:ResolverContext) : ResolverContext
                                                                                                         | "init" -> functionKind.INITIALIZER // So we can error if initializer tries to return a value.
                                                                                                         | _ -> functionKind.METHOD
                                                        
-                                                       ctx |> setInClass IN_CLASS
+                                                       ctx |> resolveSuperclass cls.superclass
+                                                           |> setInClass IN_CLASS
                                                            |> declare cls.name 
                                                            |> define cls.name
                                                            |> resolveLocal cls.name
@@ -243,6 +244,11 @@ and resolveStatements( statements:Stmt list) (ctx: ResolverContext)  : ResolverC
             |> resolveStatements xs 
         // TODO: Remove this if you don't want to print intermediate results.
         //printfn "%s" (toString result) |> ignore
+and resolveSuperclass (idOpt:identifier_terminal option) (ctx:ResolverContext) : ResolverContext =
+    match idOpt with 
+    | Some( id) -> resolveLocal id ctx
+    | None -> ctx
+    
         
 
 let resolverPass (statements:Stmt list) : ScopeDistanceMap = // THIS IS PROBLEM. Need to return a new statmentList with annotations.
