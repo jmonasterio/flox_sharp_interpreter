@@ -138,3 +138,63 @@ print foo.init();
 //var foo = Foop();
 //print foo.init();
 
+
+
+//print "TEST #21";
+//var NotAClass = "I am totally not a class";
+//
+//class Subclass < NotAClass {} // Error
+
+
+print "TEST #22";
+class Doughnut {
+  cook() {
+    print "Fry until golden brown.";
+  }
+}
+
+class BostonCream < Doughnut {}
+
+BostonCream().cook();
+
+
+print "TEST#23";
+
+class Doughnut {
+  cook() {
+    print "Fry until golden brown.";
+  }
+}
+
+class BostonCream < Doughnut {
+  cook() {
+    super.cook();
+    print "Pipe full of custard and coat with chocolate.";
+  }
+}
+
+BostonCream().cook();
+// Prints:
+// Fry until golden brown.
+// Pipe full of custard and coat with chocolate.
+
+print "TEST#24";
+class A {
+  method() {
+    print "A method";
+  }
+}
+
+class B < A {
+  method() {
+    print "B method";
+  }
+
+  test() {
+    super.method();
+  }
+}
+
+class C < B {}
+
+C().test();

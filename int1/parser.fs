@@ -99,7 +99,7 @@ and primary_expr =
     | NIL //of nil_terminal
     | IDENTIFIER of identifier_terminal
     | THIS of identifier_terminal
-    | SUPER of identifier_terminal
+    | SUPER of identifier_terminal // Contains the method called on super.
 and unary = 
     | UNARY of unary_operator * expr // TBD: Does not match book.
     | PRIMARY of primary_expr // <-- Without this we never "FINISH".
@@ -345,9 +345,8 @@ let makeBinaryOp token : binary_operator =
     
 
 // TBD not typesafe because 2 lists have to be kept in sync.
-// primary → NUMBER | STRING | "false" | "true" | "nil" | "(" expression ")" | IDENTIFIER | THIS ;
 let rec primary ctx =
-    let ctx', matchedToken = matchParser ctx [FALSE; TRUE; TokenType.NIL; TokenType.NUMBER; TokenType.STRING; LEFT_PAREN; TokenType.IDENTIFIER; TokenType.THIS]
+    let ctx', matchedToken = matchParser ctx [FALSE; TRUE; TokenType.NIL; TokenType.NUMBER; TokenType.STRING; LEFT_PAREN; TokenType.IDENTIFIER; TokenType.THIS; TokenType.SUPER]
     match matchedToken.matched with
     | Some(token) ->
         match token.tokenType with
@@ -379,9 +378,10 @@ let rec primary ctx =
             result, ctx' // TBD
         | TokenType.SUPER ->
             let prevTok = (previous ctx')
-            let ctx'', token = consume ctx' DOT "Expect superclass method name."
-            let result = PrimaryExpr( SUPER { name = "super"; guid = newGuid()}) 
-            result, ctx''
+            let ctx'', token = consume ctx' DOT "Expect '.' after 'super'."
+            let ctx''', method = consume ctx'' TokenType.IDENTIFIER "Expect superclass method name."
+            let result = PrimaryExpr( SUPER { name = method.lexeme; guid = newGuid() }) 
+            result, ctx'''
 
         | TokenType.IDENTIFIER ->
             let prevTok = (previous ctx')
@@ -757,14 +757,15 @@ and classDeclaration ctx =
 
     let ctx0, matchedToken = matchParser ctx' [LESS]
     let ctx1, optSuperclass = match matchedToken with
-    | { matched = Some(token)} -> 
-        match token.tokenType with 
-        | TokenType.LESS -> 
-                    let ctx1, name = consume ctx0 TokenType.IDENTIFIER "Expect superclass name."
-                    //let prevTok = (previous ctx0)
-                    let superclass = { name = name.lexeme; guid = newGuid() } // TBD: Was expr.Variable in book.
-                    ctx1, Some(superclass)
-    | _ -> ctx0, None
+                                | { matched = Some(token)} -> 
+                                    match token.tokenType with 
+                                    | TokenType.LESS -> 
+                                                let ctx1, name = consume ctx0 TokenType.IDENTIFIER "Expect superclass name."
+                                                //let prevTok = (previous ctx0)
+                                                let superclass = { name = name.lexeme; guid = newGuid() } // TBD: Was expr.Variable in book.
+                                                ctx1, Some(superclass)
+                                    | _ -> failwith (sprintf "Did not expect any other match, but found: %A" matchedToken.butFound)
+                                | _ -> ctx0, None
 
 
 

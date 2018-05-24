@@ -73,6 +73,9 @@ let addThisToScope ctx =
     ctx |> declare thisId // Different from book 12.5
         |> define thisId
 
+let addSuperClassToScope ctx id = 
+    ctx |> declare id // Different from book 12.5
+        |> define id
         
 let visitVariableExpr (id: identifier_terminal) (ctx:ResolverContext) : ResolverContext =
     ctx |> resolveLocal id 
@@ -94,7 +97,7 @@ let rec resolveExpression (e:expr) (ctx:ResolverContext) : ResolverContext =
                                 | UNARY (op,right) ->   ctx |> resolveExpression right
                                 | PRIMARY p -> resolveExpression (PrimaryExpr p) ctx
         | PrimaryExpr e ->  match e with
-                                    | Parser.IDENTIFIER id -> // TBD: In book, this is a separate varaible expression.
+                                    | Parser.IDENTIFIER id -> // TBD: In book, this is a separate variableExpr expression.
                                                                 visitVariableExpr id ctx
 
                                     | Parser.THIS t ->                               
@@ -105,6 +108,9 @@ let rec resolveExpression (e:expr) (ctx:ResolverContext) : ResolverContext =
                                                         //| functionKind.METHOD -> visitVariableExpr t ctx
                                                         //| functionKind.INITIALIZER -> failwith "Cannot use 'this' in constructor." // I don't think book covered this case.
                                                         visitVariableExpr t ctx
+                                    | Parser.SUPER s -> // This is tricky and took a while to debug. The resolver wants to resolve "super", but the
+                                                        // interpreter needs s.name to contain the name of the method to call.
+                                                        visitVariableExpr { name="super";guid=s.guid} ctx
                                     | _ -> ctx //easiest of all
         | GroupingExpr e ->   ctx |> resolveExpression e
         | LogicalExpr e ->  let left,op,right = e    
@@ -206,16 +212,17 @@ let rec resolveSingleStatement statement (ctx:ResolverContext) : ResolverContext
                                                                                                         | "init" -> functionKind.INITIALIZER // So we can error if initializer tries to return a value.
                                                                                                         | _ -> functionKind.METHOD
                                                        
-                                                       ctx |> resolveSuperclass cls.superclass
-                                                           |> setInClass IN_CLASS
+                                                       ctx |> setInClass IN_CLASS
                                                            |> declare cls.name 
                                                            |> define cls.name
                                                            |> resolveLocal cls.name
+                                                           |> resolveSuperclass cls.superclass
                                                            |> beginScope
                                                            |> addThisToScope
                                                            //|> addMethod cls.methods  METHOD
                                                            |> List.foldBack (fun meth -> resolveFunction meth (calcFuncKind meth)) cls.methods
                                                            |> endScope
+                                                           |> endOptionalSuperClassScope cls.superclass
                                                            |> setInClass enclosingClass
 
                                 | _ -> failwith "unknown statement type"
@@ -244,12 +251,19 @@ and resolveStatements( statements:Stmt list) (ctx: ResolverContext)  : ResolverC
             |> resolveStatements xs 
         // TODO: Remove this if you don't want to print intermediate results.
         //printfn "%s" (toString result) |> ignore
-and resolveSuperclass (idOpt:identifier_terminal option) (ctx:ResolverContext) : ResolverContext =
-    match idOpt with 
-    | Some( id) -> resolveLocal id ctx
-    | None -> ctx
-    
-        
+and resolveSuperclass (superIdOpt:identifier_terminal option) (ctx:ResolverContext) : ResolverContext =
+        match superIdOpt with 
+        | Some( id) ->  let superId =  { name = "super"; guid = newGuid() }
+                        ctx |> resolveLocal id
+                           |> beginScope // Superclass support
+                           //|> addSuperClassToScope id // Superclass support
+                           |> declare superId // superclass
+                           |> define superId
+        | None -> ctx
+and endOptionalSuperClassScope (superIdOpt:identifier_terminal option) (ctx:ResolverContext) : ResolverContext  =  
+        match superIdOpt with 
+        | Some( id) -> ctx |> endScope
+        | None -> ctx        
 
 let resolverPass (statements:Stmt list) : ScopeDistanceMap = // THIS IS PROBLEM. Need to return a new statmentList with annotations.
     try

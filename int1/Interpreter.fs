@@ -64,7 +64,7 @@ and loxCallable =
 
 and loxClass = // 12.1
     {
-        id: IdentifierName
+        id: identifier_terminal
         mutable methods: MethodMap
         superclass: loxClass option
     }
@@ -168,10 +168,6 @@ let rec ancestor dist scopes =
         | Some enc -> enc
         | _ -> failwith "ancestor not found."
 
-let findScopeAtLocalDistance (id:identifier_terminal) env =
-    match env.localDistances.TryFind id.guid with
-    | Some(rdt) -> ancestor (rdt.dist) env.localScopes 
-    | None -> env.globalScope
 
 type param = {
     name: identifier_terminal
@@ -199,16 +195,22 @@ let initEnvironment scopeDistanceMap =
     }
 
 
+let findScopeAtLocalDistance (id:identifier_terminal) env =
+    match env.localDistances.TryFind id.guid with
+    | Some(rdt) -> ancestor (rdt.dist) env.localScopes 
+    | None -> env.globalScope
+
+
 let rec lookupVariableInScope (foundScope:LoxEnvironment) (id:identifier_terminal) = 
     if foundScope.values.ContainsKey id.name then
         foundScope.values.Item id.name 
     else 
         match foundScope.enclosing with
         | Some(encloser) -> lookupVariableInScope encloser id
-        | None -> failwith "Could not find variable in scopes"
+        | None -> failwith (sprintf "Could not find variable, %A, in scopes" id)
 
 
-let rec lookupVariable (id:identifier_terminal) (   env:Environment) : Literal = 
+let lookupVariable (id:identifier_terminal) (   env:Environment) : Literal = 
     let foundScope = findScopeAtLocalDistance id env 
     lookupVariableInScope foundScope id 
                             
@@ -278,8 +280,8 @@ let toString lit =
                     | CALL c -> match c.decl with 
                                 | DECL d -> sprintf "Function(%A)" d.id 
                                 | NATIVE name -> sprintf "Native(%A)" name
-                    | CLASS c -> c.id
-                    | INSTANCE i -> i.klass.id + " instance"
+                    | CLASS c -> c.id.name
+                    | INSTANCE i -> i.klass.id.name + " instance"
                     | METHOD m -> m.id.name + " method"
                     | FUNCTION f -> f.id.name + "function"
 
@@ -302,8 +304,8 @@ let CSTRING value : string =
     | STRING s -> s
     | NIL -> runtimeError "Operand must be a string."
     | CALL c-> runtimeError "TBD"
-    | CLASS c-> c.id
-    | INSTANCE i -> i.klass.id + " instance"
+    | CLASS c-> c.id.name
+    | INSTANCE i -> i.klass.id.name + " instance"
     | METHOD m -> m.id.name + " method"
     | FUNCTION f -> f.id.name + "function"
 
@@ -433,6 +435,7 @@ let rec evalExpression (e:expr) (env:Environment) =
                             | Parser.NIL -> NIL, env
                             | Parser.IDENTIFIER i -> (lookupVariable i env), env
                             | Parser.THIS t -> lookupVariable t env, env
+                            | Parser.SUPER s -> lookupVariable s env, env
         | GroupingExpr e ->    evalExpression e env
         | LogicalExpr e -> let left,op,right = e    
                            let leftValue, env' = evalExpression left env
@@ -554,24 +557,53 @@ and execSingleStatement statement lastResult env =
                                 | Stmt.ReturnStmt returnStmt -> // We return values back through call stack instead of THROW that book uses.
                                                                 evalExpression returnStmt.value env
                                 | Stmt.Class classStmt ->  let lit, env' = define classStmt.name NIL env
-                                                           
-                                                           let methods = classStmt.methods |> Seq.map (fun funcStmt -> funcStmt.id.name, { method = { decl = DECL funcStmt; closureKey = funcStmt.id.guid; arity = funcStmt.parameters.Length }; id=funcStmt.id; isInitializer = (funcStmt.id.name = "init") }) |> Map.ofSeq
-                                                           let env'' = env' |> List.foldBack (fun funcStmt ee-> let lit,e1 =makeEnvWithClosure funcStmt ee
-                                                                                                                e1 ) classStmt.methods
 
-                                                           let superLoxClass, env''' = 
+
+                                                           let superLoxClass, env'' = 
                                                                match classStmt.superclass with
-                                                               | None -> None, env''
-                                                               | Some( sc) -> let evSuperClass, env4 = evalExpression (PrimaryExpr (Parser.IDENTIFIER sc)) env''
+                                                               | None -> None, env'
+                                                               | Some( sc) -> let evSuperClass, env4 = evalExpression (PrimaryExpr (Parser.IDENTIFIER sc)) env'
                                                                               match evSuperClass with
-                                                                              | Literal.CLASS c -> Some(c), env4
+                                                                              | Literal.CLASS c ->    // TBD: Below is Similar to makeEnvWithClosure
+                                                                                                      // TBD: Also similar to bind()
+                                                                                                      let env5 = pushNewScope env4
+
+                                                                                                      let superId =  { name = "super"; guid = newGuid() }
+                                                                                                      let lit,env6 = define superId (Literal.CLASS c) env5
+                                                                                                      let env7 = { env6 with closures = env6.closures.Add( c.id.guid, env6.localScopes) } 
+                                                                                                      Some(c), env7
                                                                               | _ -> failwith "Superclass must be a class."
 
+                                                
 
-
-                                                           let klass = CLASS( { id = classStmt.name.name; methods=methods; superclass = superLoxClass })
-                                                           assignValue klass env''' classStmt.name // TBD: In book returned null (lit)
                                                            
+                                                           let methods = classStmt.methods 
+                                                                                    |> Seq.map (fun funcStmt -> funcStmt.id.name, 
+                                                                                                                    { method = 
+                                                                                                                        { decl = DECL funcStmt; 
+                                                                                                                          closureKey = funcStmt.id.guid; 
+                                                                                                                          arity = funcStmt.parameters.Length }; 
+                                                                                                                      id=funcStmt.id; 
+                                                                                                                      isInitializer = (funcStmt.id.name = "init") }) 
+                                                                                    |> Map.ofSeq
+                                                           let env''' = env'' |> List.foldBack (fun funcStmt ee-> let lit,e1 = makeEnvWithClosure funcStmt ee  
+                                                                                                                  e1 ) classStmt.methods
+
+    
+
+                                                           let klass = CLASS( { id = classStmt.name; methods=methods; superclass = superLoxClass })
+
+                                                           // If there is a superclass, pop the "enclosing" scope we pushed above.
+                                                           let env5 = 
+                                                               match classStmt.superclass with
+                                                               | None -> env'''
+                                                               | Some( sc) ->  popScope env''' // enclosing?
+
+
+                                                           let result,env'''' = assignValue klass env5 classStmt.name // TBD: In book returned null (lit)
+                                                           
+                                                           result, env''''
+
                                 | _ ->failwith "Not implemented"
 
 
