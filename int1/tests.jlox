@@ -198,3 +198,13 @@ class B < A {
 class C < B {}
 
 C().test();
+
+print "TEST #25";
+//class Eclair {
+//  cook() {
+//    super.cook();
+//    print "Pipe full of crème pâtissière.";
+//  }
+//}
+
+//super.notEvenInAClass();

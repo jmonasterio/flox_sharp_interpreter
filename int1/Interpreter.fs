@@ -213,25 +213,6 @@ let rec lookupVariableInScope (foundScope:LoxEnvironment) (id:identifier_termina
 let lookupVariable (id:identifier_terminal) (   env:Environment) : Literal = 
     let foundScope = findScopeAtLocalDistance id env 
     lookupVariableInScope foundScope id 
-                            
-
-
-                    
-#if OLD
-let rec lookup (name:identifier_terminal) (env:Environment) = 
-    // In the book, this took a TOKEN, but I think this is better.
-    if( not (env.localScopes.Head.values.ContainsKey name.name) )then
-        match env.localScopes.Head.enclosing with
-        | Some( env) ->  lookup name env
-        | None -> if( not (env.values.ContainsKey name.name)) then
-                    let msg = sprintf "Undefined variable in lookup: %s" name.name
-                    failwith msg
-                  else
-                    lookup name env
-    else 
-        (env.values.Item name.name, env)
-#endif
-
 
 let assignValue value env (id:identifier_terminal) =
     let assignAt (dist:ResolveDistance) (id:identifier_terminal) (value:Literal) (env:Environment) =
@@ -360,47 +341,10 @@ let negative value =
     | CLASS c -> runtimeError "- operator does not work on an CLASS"
     | METHOD m -> runtimeError "- operator does not work on an METHOD"
     | FUNCTION f -> runtimeError "- operator does not work on an FUNCTION"
-    
-
-
 
 // Visitor for expressions
 let rec evalExpression (e:expr) (env:Environment) = 
     match e with 
-#if OLD
-        | EqualityExpr (c, more) -> prettyPrint (ComparisonExpr c)
-                                    match more with
-                                        | MORE z -> 
-                                            match z.Head with 
-                                                | op , cmp ->
-                                                        printfn "%A" op
-                                                        prettyPrint (ComparisonExpr cmp)
-                                        | ZERO -> ()
-        | ComparisonExpr (a, more) -> prettyPrint  (AdditionExpr a)
-                                      match more with
-                                            | MORE z -> 
-                                                match z.Head with 
-                                                    | op , add ->
-                                                            printfn "%A" op
-                                                            prettyPrint (AdditionExpr add)
-                                            | ZERO -> ()
-        | AdditionExpr (e, more) -> prettyPrint  (MultiplicationExpr e)
-                                    match more with
-                                        | MORE z -> 
-                                            match z.Head with 
-                                                | op , mul ->
-                                                        printfn "%A" op
-                                                        prettyPrint (MultiplicationExpr mul)
-                                        | ZERO -> ()
-        | MultiplicationExpr (e, more) -> prettyPrint  (UnaryExpr e)
-                                          match more with
-                                                | MORE z -> 
-                                                    match z.Head with 
-                                                        | op , un ->
-                                                                printfn "%A" op
-                                                                prettyPrint (UnaryExpr un)
-                                                | ZERO -> ()
-#endif
         | AssignExpr e ->       let value, env' = evalExpression e.value env
                                 assignValue value env' e.id 
         | BinaryExpr e ->       let left,op,right = e
@@ -659,11 +603,6 @@ and callFunction (c:loxCallable) (args:Literal list) (envIn:Environment) : Liter
         // See 10.4. We need a new scope for each funtion call to hold the params/args.
         let env2 = defineParamsInOrder  decl.parameters args env1 // Then add the local args
 
-        // Execute statements in body of function (also, a new scope here because I wanted the body to be  balck)
-        //let lit = match decl.body with
-        //| Block b -> let lit, env3 = executeBlock b env2
-        //             lit
-        //| _ -> failwith "Unexpected body"                         
         let lit, env3 = execSingleStatement decl.body NIL env2
 
         // After executing, we are done with env2.
@@ -688,17 +627,3 @@ let interpret (statements:Stmt list) (scopeDistanceMap: ScopeDistanceMap) : unit
     | :? System.Exception as ex -> runtimeError ex.Message
 
 
-    // var x; x=2; print x; 
-    // var a = "global"; {   fun showA() {     print a;  }   showA();   var a = "block";   showA(); }
-
-    // var a=1; { var b=2; print a; print b; b=b+1; { b=b+1; print a; print b;}}
-    // var a=1; fun f(){  print a; var a=2; print a; } f();
-    // fun f(a,b) { print a+b;} f(1,2);
-    
-    //  var a = 0; while( a <= 0) { print a; a=1; print a;}
-
-    // Recursive count: fun count(n) { if(n>1) count(n-1); print n;} count(3);
-    // FIB: var a = 0; var b = 1; while (a < 10000) {   print a;  var temp = a;  a = b;  b = temp + b;}
-
-
-    //fun makeCounter() {   var i = 0;   fun count() {     i = i + 1;     print i;   }   return count; } var counter = makeCounter(); counter(); counter(); // "1" then "2".

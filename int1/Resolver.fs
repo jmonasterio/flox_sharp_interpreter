@@ -16,6 +16,7 @@ type ScopeMapList = ScopeMap list
 type classType =
     | IN_CLASS
     | NO_CLASS
+    | IN_SUBCLASS
     
 
 type ResolverContext = {
@@ -108,7 +109,12 @@ let rec resolveExpression (e:expr) (ctx:ResolverContext) : ResolverContext =
                                                         //| functionKind.METHOD -> visitVariableExpr t ctx
                                                         //| functionKind.INITIALIZER -> failwith "Cannot use 'this' in constructor." // I don't think book covered this case.
                                                         visitVariableExpr t ctx
-                                    | Parser.SUPER s -> // This is tricky and took a while to debug. The resolver wants to resolve "super", but the
+                                    | Parser.SUPER s -> match ctx.enclosingClass with
+                                                        | NO_CLASS -> failwith "Cannot use 'super' outside of a class."; // TBD: Lox.error
+                                                        | IN_SUBCLASS -> ()
+                                                        | IN_CLASS ->  failwith "Cannot use 'super' in a class with no superclass."
+                                    
+                                                        // This is tricky and took a while to debug. The resolver wants to resolve "super", but the
                                                         // interpreter needs s.name to contain the name of the method to call.
                                                         visitVariableExpr { name="super";guid=s.guid} ctx
                                     | _ -> ctx //easiest of all
@@ -212,7 +218,7 @@ let rec resolveSingleStatement statement (ctx:ResolverContext) : ResolverContext
                                                                                                         | "init" -> functionKind.INITIALIZER // So we can error if initializer tries to return a value.
                                                                                                         | _ -> functionKind.METHOD
                                                        
-                                                       ctx |> setInClass IN_CLASS
+                                                       ctx |> setInClass (if cls.superclass = None then IN_CLASS else IN_SUBCLASS)
                                                            |> declare cls.name 
                                                            |> define cls.name
                                                            |> resolveLocal cls.name

@@ -156,6 +156,9 @@
     let isAlpha ch =
         (ch >= 'a' && ch <= 'z') || (ch >= 'A' && ch <= 'Z') || ch = '_'
 
+    let isAlphaNumeric ch =
+        isAlpha ch || isDigit ch
+
     let rec consumeDigits ctx source =
         if isDigit( peek ctx source) then
             let newCtx = advance ctx source 
@@ -171,7 +174,7 @@
             ctx
 
     let rec identifier ctx (source:string) =
-        if isAlpha (peek ctx source) then
+        if isAlphaNumeric (peek ctx source) then
             identifier (advance ctx source) source
         else
             let text = source.[ctx.start .. ctx.current-1]

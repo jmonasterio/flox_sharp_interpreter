@@ -57,23 +57,6 @@ type logical_operator =
     | OR
 
 // Grammar
-
-
-
-
-
-#if OLD
-type expr =
-    | EqualityExprssion
-    | GroupingExpr of open_paren_terminal * expr * close_paren_terminal
-    | BinaryExpr of expr * operator * expr
-    | UnaryExpr of combOr<unary_operator * expr, primary>
-    | MultiplicationExpr of unary_operator * expr * zeroOrMore< mul_operator * unary_operator * expr>
-    | PrimaryExpr of primary
-#endif
-
-
-
 type expr =
     // These are outputs
     | UnaryExpr of unary 
@@ -106,20 +89,6 @@ and unary =
 and assign = { id:identifier_terminal; value:expr; guid: UniqueId} // name * value  // TBD: Book used a token instead of identifier terminal
 and getter = { object:expr; id:identifier_terminal}
 and setter = { object:expr; id:identifier_terminal; value:expr}
-
-#if OLD
-and multiplication = unary * zeroOrMore< mul_operator * unary>
-
-and addition = multiplication * zeroOrMore< add_operator * multiplication>
-
-and comparison = addition * zeroOrMore< comparison_operator * addition>
-
-and equality = comparison * zeroOrMore< equal_operator * comparison>
-
-
-type expression = equality
-#endif
-
 
 type Stmt =
     | Expression of expr // Just evaluates to a value, and then is ignored.
@@ -164,40 +133,6 @@ let (|ZOM|) (c:zeroOrMore<'t>) =
 
 let rec prettyPrint (e:expr)  =
     match e with 
-#if OLD
-        | EqualityExpr (c, more) -> prettyPrint (ComparisonExpr c)
-                                    match more with
-                                        | MORE z -> 
-                                            match z.Head with 
-                                                | op , cmp ->
-                                                        printfn "%A" op
-                                                        prettyPrint (ComparisonExpr cmp)
-                                        | ZERO -> ()
-        | ComparisonExpr (a, more) -> prettyPrint  (AdditionExpr a)
-                                      match more with
-                                            | MORE z -> 
-                                                match z.Head with 
-                                                    | op , add ->
-                                                            printfn "%A" op
-                                                            prettyPrint (AdditionExpr add)
-                                            | ZERO -> ()
-        | AdditionExpr (e, more) -> prettyPrint  (MultiplicationExpr e)
-                                    match more with
-                                        | MORE z -> 
-                                            match z.Head with 
-                                                | op , mul ->
-                                                        printfn "%A" op
-                                                        prettyPrint (MultiplicationExpr mul)
-                                        | ZERO -> ()
-        | MultiplicationExpr (e, more) -> prettyPrint  (UnaryExpr e)
-                                          match more with
-                                                | MORE z -> 
-                                                    match z.Head with 
-                                                        | op , un ->
-                                                                printfn "%A" op
-                                                                prettyPrint (UnaryExpr un)
-                                                | ZERO -> ()
-#endif
         | BinaryExpr e ->       let left,op,right = e
                                 prettyPrint left
                                 printfn "%A" op
@@ -634,21 +569,6 @@ and block ctx  =
     let ctx', statements = addStatements ctx []
     let ctx'', token = consume ctx' RIGHT_BRACE "Except '}' after expression."
     ctx'', Block( List.rev statements)
-
-#if OLD 
-and functionBody ctx  =
-    let rec addStatements ctx (statements: Stmt list) =
-        if not (isAtEnd ctx) && not (check ctx TokenType.RIGHT_BRACE) then
-            match (declaration ctx) with 
-            | ctx', Some(statement) -> addStatements ctx' ( statement :: statements  )
-            | ctx', None -> ctx', statements
-        else
-            ctx, statements
-
-    let ctx', statements = addStatements ctx []
-    let ctx'', token = consume ctx' RIGHT_BRACE "Except '}' after expression."
-    ctx'', FunctionBody (List.rev statements)
-#endif
 
 and statement ctx   =
     let ctx', matchedToken = matchParser ctx [PRINT;LEFT_BRACE;IF;WHILE;FOR;RETURN]
