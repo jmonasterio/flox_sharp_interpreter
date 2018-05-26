@@ -60,7 +60,7 @@ type logical_operator =
 type expr =
     // These are outputs
     | UnaryExpr of unary 
-    | PrimaryExpr of primary_expr
+    | PrimaryExpr of primary
     | BinaryExpr of binary
     | GroupingExpr of grouping
     | AssignExpr of assign
@@ -74,7 +74,7 @@ and calling = { callee: expr; arguments: expr list}
 and binary = { left: expr; binOp: binary_operator; right: expr} // binary_operator different from book.
 and logical = { left: expr; logOp: logical_operator; right: expr} // logical_operator different from book.
 and grouping = expr
-and primary_expr = 
+and primary = 
     | NUMBER of number_terminal 
     | STRING of string_terminal
     | BOOL of boolean_terminal
@@ -83,11 +83,12 @@ and primary_expr =
     | THIS of identifier_terminal
     | SUPER of identifier_terminal // Contains the method called on super.
 and unary = 
-    | UNARY of unary_operator * expr // TBD: Does not match book.
-    | PRIMARY of primary_expr // <-- Without this we never "FINISH".
-and assign = { id:identifier_terminal; value:expr; guid: UniqueId} // name * value  // TBD: Book used a token instead of identifier terminal
+    | UNARY of unary_op
+    | PRIMARY of primary // <-- Without this we never "FINISH".
+and assign = { id:identifier_terminal; value:expr; guid: UniqueId} // Book used a token instead of identifier terminal
 and getter = { object:expr; id:identifier_terminal}
 and setter = { object:expr; id:identifier_terminal; value:expr}
+and unary_op = { unOp : unary_operator; right: expr} 
 
 type Stmt =
     | Expression of expr // Just evaluates to a value, and then is ignored.
@@ -95,7 +96,7 @@ type Stmt =
     | Print of expr
     | Variable of var_statement
     | Block of Stmt list
-    | If of if_statement // * Stmt option // condition  thenBranch  elseBranch
+    | If of if_statement 
     | While of while_statement
     | ForStmt of for_statement   
     | FunctionStmt of function_statement
@@ -108,27 +109,9 @@ and if_statement = { condition : expr; thenBranch : Stmt; elseBranch : Stmt opti
 and function_statement = { id: identifier_terminal; parameters: identifier_terminal list; body: Stmt; }
     // TBD: Would it be better if the types below were structs instead of tuples (so each part has a name).
     // Did if_statement as an example -- a little more self documenting. The matches must still be against a tuple.
-and for_statement =  Option<Stmt> * Option<expr> * Option<Stmt> * Stmt   // initializer * condition * increment * statement
+and for_statement =  { initializer: Option<Stmt>; condition: Option<expr>; increment:Option<Stmt>; body: Stmt }
 and var_statement = { name:identifier_terminal; initializer: Option<expr> } // TBD: Not in book.
 and class_decl = { name: identifier_terminal; superclass: identifier_terminal option; methods: function_statement list }
-
-#if FALSE
-let (^^) p q = not(p && q) && (p || q) // makeshift xor operator
-
-let rec eval = function
-    | True          -> true
-    | And(e1, e2)   -> eval(e1) && eval(e2)
-    | Nand(e1, e2)  -> not(eval(e1) && eval(e2))
-    | Or(e1, e2)    -> eval(e1) || eval(e2)
-    | Xor(e1, e2)   -> eval(e1) ^^ eval(e2)
-    | Not(e1)       -> not(eval(e1))
-*/
-
-let (|ZOM|) (c:zeroOrMore<'t>) =
-    match c with 
-        | MORE z -> Some(c)
-        | ZERO -> None
-#endif
 
 let rec prettyPrint (e:expr)  =
     match e with 
@@ -136,9 +119,9 @@ let rec prettyPrint (e:expr)  =
                                 printfn "%A" e.binOp
                                 prettyPrint e.right
         | UnaryExpr e ->        match e with 
-                                | UNARY (op,right) ->   match op with
-                                                        | BANG -> printf "!"
-                                                        | NEGATIVE -> printf "-"
+                                | UNARY u ->   match u.unOp with
+                                                | BANG -> printf "!"
+                                                | NEGATIVE -> printf "-"
                                 | PRIMARY p -> prettyPrint (PrimaryExpr p)
         | PrimaryExpr e -> match e with 
                             | NUMBER n-> printfn "%f" n.value
@@ -368,10 +351,10 @@ and unary ctx : ParserContext* expr   =
         let newCtx, right = unary ctx'
         match tokOp.tokenType with
         | TokenType.BANG ->
-            let result = UnaryExpr (UNARY(unary_operator.BANG, right))   // TBD: This is a horrible convert
+            let result = UnaryExpr (UNARY { unOp = unary_operator.BANG; right= right})   // TBD: This is a horrible convert
             newCtx, result
         | TokenType.MINUS ->
-            let result = UnaryExpr (UNARY(unary_operator.NEGATIVE, right)) // TBD: This is a horrible convert
+            let result = UnaryExpr (UNARY { unOp = unary_operator.NEGATIVE; right = right}) // TBD: This is a horrible convert
             newCtx, result
         | _ -> failwith "Invalid unary operator"
 
@@ -401,9 +384,9 @@ and moreBinary lstTokens (ctx,ex1)  =
                                             let expr2 = BinaryExpr { left = ex1; binOp = opBinary; right = PrimaryExpr p }
                                             moreBinary lstTokens (ctx', expr2) 
                                             //newCtx, expr2
-                                        | UNARY (op,exprRight) -> 
+                                        | UNARY { unOp = op; right = exprRight} -> 
                                             // Recurse
-                                            let unRight = UnaryExpr (UNARY (op, exprRight))
+                                            let unRight = UnaryExpr (UNARY { unOp = op; right= exprRight})
                                             let expr2 = BinaryExpr { left = ex1; binOp = opBinary; right = unRight }
                                             moreBinary lstTokens (ctx', expr2) 
         | ctx', PrimaryExpr p -> let expr2 = BinaryExpr { left = ex1; binOp = opBinary; right = PrimaryExpr p} // This case needed because primary() function can return lots of things.
@@ -458,7 +441,7 @@ and assignment ctx =
             (ctx'', ex)
 
 
-and expression ctx : ParserContext * expr = // This is weirdo.
+and expression ctx : ParserContext * expr = // TBD: This is weirdo.
     assignment ctx
 
 let synchronize ctx =
@@ -520,15 +503,14 @@ type functionKind =
 // Desugar FOR loop into several statements (while loop) instead of changing interpreter.
 // This was just an example like in the book. This could be done in the Interperter
 let desugarFor (forStmt:for_statement) =
-    let initializer, conditionOption, increment, body = forStmt
-    let body' = match increment with
-                | Some(incStmt) -> Block [body; incStmt]
-                | None -> body
-    let condition:expr = match conditionOption with
+    let body' = match forStmt.increment with
+                | Some(incStmt) -> Block [forStmt.body; incStmt]
+                | None -> forStmt.body
+    let condition:expr = match forStmt.condition with
                             | Some(condition) -> condition
                             | None -> PrimaryExpr( BOOL { value = true; })
     let body'' = While( { condition = condition; body = body';} )
-    let body''' = match initializer with
+    let body''' = match forStmt.initializer with
                      | None -> body''
                      | Some (initializer) -> Block [initializer; body'']
     //printf "%A" body'''
@@ -616,7 +598,7 @@ and forStatement ctx: ParserContext * for_statement  =
                                                 None, ctx4
     let ctx6, token = consume ctx5 RIGHT_PAREN "Expected ')' after for clauses."
     let ctx7,body = statement ctx6
-    ctx7, (initializer, condition, increment, body)
+    ctx7, { initializer = initializer; condition= condition; increment= increment; body = body}
 
 and whileStatement ctx = 
     let ctx', token = consume ctx LEFT_PAREN "Expected '(' after 'while'."

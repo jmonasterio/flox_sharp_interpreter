@@ -365,11 +365,11 @@ let rec evalExpression (e:expr) (env:Environment) =
                                 | EQUALITY_OP equal_operator.EQUAL_EQUAL -> BOOL (isEqual leftValue rightValue), env''
                                 //| _ -> runtimeError ( sprintf" Unsupported operator: %A" op)
         | UnaryExpr e ->        match e with 
-                                | UNARY (op,right) ->   let rv, env' = evalExpression right env
-                                                        let lit = match op with
-                                                                    | unary_operator.BANG -> BOOL (not (isTruthy rv))
-                                                                    | NEGATIVE -> NUMBER (- CNUMBER rv)
-                                                        (lit,env')
+                                | UNARY u ->   let rv, env' = evalExpression u.right env
+                                               let lit = match u.unOp with
+                                                            | unary_operator.BANG -> BOOL (not (isTruthy rv))
+                                                            | NEGATIVE -> NUMBER (- CNUMBER rv)
+                                               (lit,env')
                                 | PRIMARY p -> evalExpression (PrimaryExpr p) env
         | PrimaryExpr e ->  match e with 
                             | Parser.NUMBER n-> NUMBER n.value, env
@@ -428,7 +428,7 @@ let rec evalExpression (e:expr) (env:Environment) =
 
 and evalFor forStmt lastResult env =
     failwith "Should not get here, because for loop desugared into a while loop."
-and evalIf ifs lastResult env =
+and evalIf (ifs:if_statement) lastResult env =
     let lit, env' = evalExpression ifs.condition env
     if isTruthy lit then
         execSingleStatement ifs.thenBranch lastResult env'

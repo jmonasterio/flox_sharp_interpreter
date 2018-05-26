@@ -94,7 +94,7 @@ let rec resolveExpression (e:expr) (ctx:ResolverContext) : ResolverContext =
         | BinaryExpr e ->       ctx |> resolveExpression e.left
                                     |> resolveExpression e.right
         | UnaryExpr e ->        match e with 
-                                | UNARY (op,right) ->   ctx |> resolveExpression right
+                                | UNARY u ->   ctx |> resolveExpression u.right
                                 | PRIMARY p -> resolveExpression (PrimaryExpr p) ctx
         | PrimaryExpr e ->  match e with
                                     | Parser.IDENTIFIER id -> // TBD: In book, this is a separate variableExpr expression.
@@ -182,11 +182,10 @@ let rec resolveSingleStatement statement (ctx:ResolverContext) : ResolverContext
                                 | Stmt.If ifs -> ctx |> resolveExpression ifs.condition
                                                      |> resolveSingleStatement ifs.thenBranch
                                                      |> resolveOptionalSingleStatement ifs.elseBranch 
-                                | Stmt.ForStmt forStmt ->   let (initializer, condition, increment, stmt) = forStmt // TBD Change to a record.
-                                                            ctx |> resolveOptionalSingleStatement initializer
-                                                                |> resolveOptionalExpression condition
-                                                                |> resolveOptionalSingleStatement increment
-                                                                |> resolveSingleStatement stmt
+                                | Stmt.ForStmt forStmt ->   ctx |> resolveOptionalSingleStatement forStmt.initializer
+                                                                |> resolveOptionalExpression forStmt.condition
+                                                                |> resolveOptionalSingleStatement forStmt.increment
+                                                                |> resolveSingleStatement forStmt.body
                                 | Stmt.While whileStmt ->   ctx |> resolveExpression whileStmt.condition
                                                                 |> resolveSingleStatement whileStmt.body
                                 | Stmt.FunctionStmt funcStmt ->     ctx |> declare funcStmt.id
