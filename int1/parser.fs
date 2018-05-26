@@ -84,24 +84,23 @@ and primary =
     | SUPER of identifier_terminal // Contains the method called on super.
 and unary = 
     | UNARY of unary_op
-    | PRIMARY of primary // <-- Without this we never "FINISH".
+    | PRIMARY of primary // TBD: Without this we never "FINISH".
 and assign = { id:identifier_terminal; value:expr; guid: UniqueId} // Book used a token instead of identifier terminal
 and getter = { object:expr; id:identifier_terminal}
 and setter = { object:expr; id:identifier_terminal; value:expr}
 and unary_op = { unOp : unary_operator; right: expr} 
 
 type Stmt =
-    | Expression of expr // Just evaluates to a value, and then is ignored.
-    // TBD: All below should be PrintStmt, VarStatment, BlockStmt etc
-    | Print of expr
-    | Variable of var_statement
-    | Block of Stmt list
-    | If of if_statement 
-    | While of while_statement
+    | ExpressionStmt of expr // Just evaluates to a value, and then is ignored.
+    | PrintStmt of expr
+    | VariableStmt of var_statement
+    | BlockStmt of Stmt list
+    | IfStmt of if_statement 
+    | WhileStmt of while_statement
     | ForStmt of for_statement   
     | FunctionStmt of function_statement
     | ReturnStmt of return_statement
-    | Class of class_decl
+    | ClassStmt of class_decl
     //| FunctionBody of Stmt list // Function body (not counted as block because resolver handles different
 and return_statement = { keyword: string; value: expr; } // TBD: Book says "keyword" is so we can use it's location for error reporting.
 and while_statement = { condition: expr; body: Stmt}
@@ -110,7 +109,7 @@ and function_statement = { id: identifier_terminal; parameters: identifier_termi
     // TBD: Would it be better if the types below were structs instead of tuples (so each part has a name).
     // Did if_statement as an example -- a little more self documenting. The matches must still be against a tuple.
 and for_statement =  { initializer: Option<Stmt>; condition: Option<expr>; increment:Option<Stmt>; body: Stmt }
-and var_statement = { name:identifier_terminal; initializer: Option<expr> } // TBD: Not in book.
+and var_statement = { name:identifier_terminal; initializer: Option<expr> } // Not in book.
 and class_decl = { name: identifier_terminal; superclass: identifier_terminal option; methods: function_statement list }
 
 let rec prettyPrint (e:expr)  =
@@ -476,12 +475,12 @@ let synchronize ctx =
 let expressionStatement ctx =
     let (ctx', expr) = expression ctx
     let ctx', token = consume ctx' SEMICOLON "Expected ';' after expression."
-    ctx', Expression expr
+    ctx', ExpressionStmt expr
 
 let printStatement ctx = 
     let (ctx', value) = expression ctx
     let ctx', token = consume ctx' SEMICOLON "Expected ';' after value."
-    ctx', Print value
+    ctx', PrintStmt value
  
 let varDeclaration ctx =
     let ctx', name = consume ctx TokenType.IDENTIFIER "Expect variable name."
@@ -504,15 +503,15 @@ type functionKind =
 // This was just an example like in the book. This could be done in the Interperter
 let desugarFor (forStmt:for_statement) =
     let body' = match forStmt.increment with
-                | Some(incStmt) -> Block [forStmt.body; incStmt]
+                | Some(incStmt) -> BlockStmt [forStmt.body; incStmt]
                 | None -> forStmt.body
     let condition:expr = match forStmt.condition with
                             | Some(condition) -> condition
                             | None -> PrimaryExpr( BOOL { value = true; })
-    let body'' = While( { condition = condition; body = body';} )
+    let body'' = WhileStmt( { condition = condition; body = body';} )
     let body''' = match forStmt.initializer with
                      | None -> body''
-                     | Some (initializer) -> Block [initializer; body'']
+                     | Some (initializer) -> BlockStmt [initializer; body'']
     //printf "%A" body'''
     body'''   
 
@@ -524,11 +523,11 @@ let rec declaration ctx =
         let ctx'', dec = match matchedToken with
                                                 | { matched = Some(token)} -> match token.tokenType with 
                                                                                         | VAR -> let ctx'', v, opt = varDeclaration ctx'
-                                                                                                 ctx'', Variable({ name=v; initializer=opt})
+                                                                                                 ctx'', VariableStmt({ name=v; initializer=opt})
                                                                                         | FUN -> let ctx'',f = functionDeclaration FUNCTION ctx'
                                                                                                  ctx'', FunctionStmt(f)
                                                                                         | CLASS -> let ctx'', c = classDeclaration ctx'
-                                                                                                   ctx'', Class(c)
+                                                                                                   ctx'', ClassStmt(c)
                                                                                         | _ -> failwith "INTERNAL: Need to machParser above."
                                                 | { matched = None}  -> statement ctx'    
         (ctx'', Some(dec))
@@ -547,7 +546,7 @@ and block ctx  =
 
     let ctx', statements = addStatements ctx []
     let ctx'', token = consume ctx' RIGHT_BRACE "Except '}' after expression."
-    ctx'', Block( List.rev statements)
+    ctx'', BlockStmt( List.rev statements)
 
 and statement ctx   =
     let ctx', matchedToken = matchParser ctx [PRINT;LEFT_BRACE;IF;WHILE;FOR;RETURN]
@@ -579,7 +578,7 @@ and forStatement ctx: ParserContext * for_statement  =
     let ctx2,(initializer:Option<Stmt>) = match matchedToken with
                                                 | {matched = Some(token)} -> match token.tokenType with
                                                                                 | TokenType.VAR -> let tempCtx, id, init = varDeclaration ctx''
-                                                                                                   tempCtx, Some(Variable({name=id;initializer=init}))
+                                                                                                   tempCtx, Some(VariableStmt({name=id;initializer=init}))
                                                                                 | TokenType.SEMICOLON -> ctx'', None;
                                                                                 | _ -> failwith "Not possible?"
                                                 | {matched = None } ->  let tempCtx, stm = expressionStatement ctx' // IMPORTANT: Back to previous context!
@@ -605,7 +604,7 @@ and whileStatement ctx =
     let ctx'', condition = expression ctx'
     let ctx''', token = consume ctx'' RIGHT_PAREN "Expected ')' after condition."
     let ctx'''',body = statement ctx'''
-    ctx'''', While ( { condition= condition; body = body})
+    ctx'''', WhileStmt ( { condition= condition; body = body})
 
 and ifStatement ctx =
     // TBD: Chain this together better.
@@ -615,10 +614,10 @@ and ifStatement ctx =
     let ctx'''',thenBranch = statement ctx'''
     match matchParser ctx'''' [ELSE] with
     | newCtx, { matched = Some(_)} -> let lastCtx,elseBranch = statement newCtx
-                                      lastCtx, If { condition = condition;
+                                      lastCtx, IfStmt { condition = condition;
                                       thenBranch = thenBranch;
                                       elseBranch = Some(elseBranch)}
-    | lastCtx, { matched = None}  -> lastCtx, If { condition = condition;
+    | lastCtx, { matched = None}  -> lastCtx, IfStmt { condition = condition;
                                      thenBranch = thenBranch;
                                      elseBranch = None }
 

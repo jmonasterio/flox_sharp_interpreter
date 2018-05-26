@@ -448,43 +448,38 @@ and evalWhile (whileStmt: while_statement) lastResult env =
 
 and execSingleStatement statement lastResult env =
             match statement with 
-                                | Stmt.Expression e -> evalExpression e env
-                                | Stmt.Print p ->       let lit, env' = evalExpression p env
+                                | ExpressionStmt e -> evalExpression e env
+                                | PrintStmt p ->        let lit, env' = evalExpression p env
                                                         printfn "%s" (toString ( lit))
                                                         (lit, env')
-                                | Stmt.Variable {name=name; initializer=None} -> NIL, env
-                                | Stmt.Variable {name=name; initializer=Some(expr.PrimaryExpr e)} ->   let value, env' = evalExpression (PrimaryExpr e) env
-                                                                                                       define name value env'  
-                                | Stmt.Variable {name=name; initializer=Some(expr.UnaryExpr e)} ->     let value, env' = evalExpression (UnaryExpr e) env
-                                                                                                       define name value env'  
-                                | Stmt.Variable {name=name; initializer=Some(expr.BinaryExpr e)} ->    let value, env' = evalExpression (BinaryExpr e) env 
-                                                                                                       define name value env'  
-                                | Stmt.Variable {name=name; initializer=Some(expr.GroupingExpr e)} ->  let value, env' = evalExpression (GroupingExpr e) env
-                                                                                                       define name value env'  
-                                | Stmt.Variable {name=name; initializer=Some(expr.AssignExpr e)} ->    let value, env' = evalExpression (AssignExpr e) env
-                                                                                                       define name value env'  
-                                | Stmt.Variable {name=name; initializer=Some(expr.LogicalExpr e)} ->   let value, env' = evalExpression (LogicalExpr e) env
-                                                                                                       define name value env'  
-                                | Stmt.Variable {name=name; initializer=Some(expr.CallExpr e)} ->   let value, env' = evalExpression (CallExpr e) env
-                                                                                                    define name value env'  
-                                | Stmt.Variable {name=name; initializer=Some(expr.GetExpr e)} ->   let value, env' = evalExpression (GetExpr e) env
+                                | VariableStmt {name=name; initializer=None} -> NIL, env
+                                | VariableStmt {name=name; initializer=Some(expr.PrimaryExpr e)} ->   let value, env' = evalExpression (PrimaryExpr e) env
+                                                                                                      define name value env'  
+                                | VariableStmt {name=name; initializer=Some(expr.UnaryExpr e)} ->     let value, env' = evalExpression (UnaryExpr e) env
+                                                                                                      define name value env'  
+                                | VariableStmt {name=name; initializer=Some(expr.BinaryExpr e)} ->    let value, env' = evalExpression (BinaryExpr e) env 
+                                                                                                      define name value env'  
+                                | VariableStmt {name=name; initializer=Some(expr.GroupingExpr e)} ->  let value, env' = evalExpression (GroupingExpr e) env
+                                                                                                      define name value env'  
+                                | VariableStmt {name=name; initializer=Some(expr.AssignExpr e)} ->    let value, env' = evalExpression (AssignExpr e) env
+                                                                                                      define name value env'  
+                                | VariableStmt {name=name; initializer=Some(expr.LogicalExpr e)} ->   let value, env' = evalExpression (LogicalExpr e) env
+                                                                                                      define name value env'  
+                                | VariableStmt {name=name; initializer=Some(expr.CallExpr e)} ->   let value, env' = evalExpression (CallExpr e) env
                                                                                                    define name value env'  
-                                | Stmt.Variable {name=name; initializer=Some(expr.SetExpr e)} ->   let value, env' = evalExpression (SetExpr e) env
-                                                                                                   define name value env'  
-                                | Stmt.Block stms ->    // Exec more statements in child context. (TBD This is much nicer than book!)
+                                | VariableStmt {name=name; initializer=Some(expr.GetExpr e)} ->   let value, env' = evalExpression (GetExpr e) env
+                                                                                                  define name value env'  
+                                | VariableStmt {name=name; initializer=Some(expr.SetExpr e)} ->   let value, env' = evalExpression (SetExpr e) env
+                                                                                                  define name value env'  
+                                | BlockStmt stms ->    // Exec more statements in child context. (TBD This is much nicer than book!)
                                                         let env1 = pushNewScope env
                                                         let lit,env2 = execStatements stms NIL env1
                                                         lit, popScope env2
                                         
-#if BAD
-    TBD: Not compile  using 'Record Pattern                              | Stmt.If { if_statement.condition = condition;
-                                            if_statement.thenExpr = thenExpr;
-                                            if_statement.elseExpr = elseExpr; } -> evalIf condition thenExpr elseExpr lastResult env
-#endif
-                                | Stmt.If ifs -> evalIf ifs lastResult env
-                                | Stmt.ForStmt forStmt -> evalFor forStmt lastResult env
-                                | Stmt.While whileStmt ->   evalWhile whileStmt lastResult env
-                                | Stmt.FunctionStmt funcStmt ->     // Interpreting a function definition adds it to the environment.
+                                | IfStmt ifs -> evalIf ifs lastResult env
+                                | ForStmt forStmt -> evalFor forStmt lastResult env
+                                | WhileStmt whileStmt ->   evalWhile whileStmt lastResult env
+                                | FunctionStmt funcStmt ->     // Interpreting a function definition adds it to the environment.
                                                                     // 
                                                                     // NOTE: For recursion, the function name itself needs to be in the closure.
                                                                     // There was no good way to do this, so I made a separate map of all the closures
@@ -494,9 +489,9 @@ and execSingleStatement statement lastResult env =
                                                                     makeEnvWithClosure funcStmt env
 
 
-                                | Stmt.ReturnStmt returnStmt -> // We return values back through call stack instead of THROW that book uses.
+                                | ReturnStmt returnStmt -> // We return values back through call stack instead of THROW that book uses.
                                                                 evalExpression returnStmt.value env
-                                | Stmt.Class classStmt ->  let lit, env' = define classStmt.name NIL env
+                                | ClassStmt classStmt ->   let lit, env' = define classStmt.name NIL env
 
 
                                                            let superLoxClass, env'' = 

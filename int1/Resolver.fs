@@ -160,38 +160,35 @@ let setInFunction flag ctx =
 
 let rec resolveSingleStatement statement (ctx:ResolverContext) : ResolverContext =
             match statement with 
-                                | Stmt.Expression e -> ctx |> resolveExpression e
-                                | Stmt.Print p ->       ctx |> resolveExpression p
-                                | Stmt.Variable {name=name;initializer=None} -> ctx |> declare name
+                                | ExpressionStmt e -> ctx |> resolveExpression e
+                                | PrintStmt p ->  ctx |> resolveExpression p
+                                | VariableStmt {name=name;initializer=None} -> ctx |> declare name
                                                                     
-                                | Stmt.Variable {name=name;initializer=Some(expr.PrimaryExpr e)} -> visitVariableStmt (PrimaryExpr e) name ctx
-                                | Stmt.Variable {name=name;initializer=Some(expr.UnaryExpr e)} ->     visitVariableStmt ( UnaryExpr e) name ctx
-                                | Stmt.Variable {name=name;initializer=Some(expr.BinaryExpr e)} ->    visitVariableStmt ( BinaryExpr e) name ctx 
-                                | Stmt.Variable {name=name;initializer=Some(expr.GroupingExpr e)} ->  visitVariableStmt ( GroupingExpr e) name ctx
-                                | Stmt.Variable {name=name;initializer=Some(expr.AssignExpr e)} ->  visitVariableStmt ( AssignExpr e) name ctx
-                                | Stmt.Variable {name=name;initializer=Some(expr.LogicalExpr e)} ->  visitVariableStmt ( LogicalExpr e) name ctx  
-                                | Stmt.Variable {name=name;initializer=Some(expr.CallExpr e)} ->  visitVariableStmt ( CallExpr e) name ctx 
-                                | Stmt.Block stmts ->   ctx |> beginScope 
+                                | VariableStmt {name=name;initializer=Some(expr.PrimaryExpr e)} -> visitVariableStmt (PrimaryExpr e) name ctx
+                                | VariableStmt {name=name;initializer=Some(expr.UnaryExpr e)} ->     visitVariableStmt ( UnaryExpr e) name ctx
+                                | VariableStmt {name=name;initializer=Some(expr.BinaryExpr e)} ->    visitVariableStmt ( BinaryExpr e) name ctx 
+                                | VariableStmt {name=name;initializer=Some(expr.GroupingExpr e)} ->  visitVariableStmt ( GroupingExpr e) name ctx
+                                | VariableStmt {name=name;initializer=Some(expr.AssignExpr e)} ->  visitVariableStmt ( AssignExpr e) name ctx
+                                | VariableStmt {name=name;initializer=Some(expr.LogicalExpr e)} ->  visitVariableStmt ( LogicalExpr e) name ctx  
+                                | VariableStmt {name=name;initializer=Some(expr.CallExpr e)} ->  visitVariableStmt ( CallExpr e) name ctx 
+                                | BlockStmt stmts ->   ctx |> beginScope 
                                                             |> resolveStatements stmts
                                                             |> endScope 
-                                | Stmt.Variable {name=name;initializer=Some(expr.GetExpr e)} ->  visitVariableStmt ( GetExpr e) name ctx 
-                                | Stmt.Variable {name=name;initializer=Some(expr.SetExpr e)} ->  visitVariableStmt ( SetExpr e) name ctx 
-#if OLD
-                                | Stmt.FunctionBody stmts -> ctx |> resolveStatements stmts // Funciton body not treated as a block in original.
-#endif
-                                | Stmt.If ifs -> ctx |> resolveExpression ifs.condition
-                                                     |> resolveSingleStatement ifs.thenBranch
-                                                     |> resolveOptionalSingleStatement ifs.elseBranch 
-                                | Stmt.ForStmt forStmt ->   ctx |> resolveOptionalSingleStatement forStmt.initializer
+                                | VariableStmt {name=name;initializer=Some(expr.GetExpr e)} ->  visitVariableStmt ( GetExpr e) name ctx 
+                                | VariableStmt {name=name;initializer=Some(expr.SetExpr e)} ->  visitVariableStmt ( SetExpr e) name ctx 
+                                | IfStmt ifs -> ctx |> resolveExpression ifs.condition
+                                                         |> resolveSingleStatement ifs.thenBranch
+                                                         |> resolveOptionalSingleStatement ifs.elseBranch 
+                                | ForStmt forStmt ->   ctx |> resolveOptionalSingleStatement forStmt.initializer
                                                                 |> resolveOptionalExpression forStmt.condition
                                                                 |> resolveOptionalSingleStatement forStmt.increment
                                                                 |> resolveSingleStatement forStmt.body
-                                | Stmt.While whileStmt ->   ctx |> resolveExpression whileStmt.condition
-                                                                |> resolveSingleStatement whileStmt.body
-                                | Stmt.FunctionStmt funcStmt ->     ctx |> declare funcStmt.id
+                                | WhileStmt whileStmt ->   ctx |> resolveExpression whileStmt.condition
+                                                                    |> resolveSingleStatement whileStmt.body
+                                | FunctionStmt funcStmt ->     ctx |> declare funcStmt.id
                                                                         |> define funcStmt.id 
                                                                         |> resolveFunction funcStmt functionKind.FUNCTION
-                                | Stmt.ReturnStmt returnStmt -> // We return values back through call stack instead of THROW that book uses.
+                                | ReturnStmt returnStmt -> // We return values back through call stack instead of THROW that book uses.
                                                                 match ctx.enclosingFunction with
                                                                 | functionKind.FUNCTION -> ctx |> resolveExpression ( returnStmt.value ) 
                                                                 | functionKind.METHOD -> ctx |> resolveExpression ( returnStmt.value ) 
@@ -199,7 +196,7 @@ let rec resolveSingleStatement statement (ctx:ResolverContext) : ResolverContext
                                                                 | functionKind.NONE -> failwith "Cannot return from top-level code"
 
 
-                                | Stmt.Class cls ->   
+                                | ClassStmt cls ->   
                                                        #if OLD 
                                                        let rec addMethod lst kind ctx = // TBD: Isn't this just  FOLD?
                                                           match lst with
