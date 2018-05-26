@@ -70,10 +70,9 @@ type expr =
     | SetExpr of setter // Property access 12.3.2
 
 
-// TBD: These should all be structs instead of tuples!!
-and calling = expr * expr list // called * arguments
-and binary = expr * binary_operator * expr // Left/Operator/Right   <- binary_operator different from book.
-and logical = expr * logical_operator * expr // Left/Operator/Right   <- logical_operator different from book.
+and calling = { callee: expr; arguments: expr list} 
+and binary = { left: expr; binOp: binary_operator; right: expr} // binary_operator different from book.
+and logical = { left: expr; logOp: logical_operator; right: expr} // logical_operator different from book.
 and grouping = expr
 and primary_expr = 
     | NUMBER of number_terminal 
@@ -133,10 +132,9 @@ let (|ZOM|) (c:zeroOrMore<'t>) =
 
 let rec prettyPrint (e:expr)  =
     match e with 
-        | BinaryExpr e ->       let left,op,right = e
-                                prettyPrint left
-                                printfn "%A" op
-                                prettyPrint right
+        | BinaryExpr e ->       prettyPrint e.left
+                                printfn "%A" e.binOp
+                                prettyPrint e.right
         | UnaryExpr e ->        match e with 
                                 | UNARY (op,right) ->   match op with
                                                         | BANG -> printf "!"
@@ -155,10 +153,9 @@ let rec prettyPrint (e:expr)  =
                                printf ")"
         | AssignExpr e -> printfn  "var %s =" (e.id.name)
                           prettyPrint (e.value)
-        | LogicalExpr e ->      let left,op,right = e
-                                prettyPrint left
-                                printfn "%A" op
-                                prettyPrint right
+        | LogicalExpr e ->      prettyPrint e.left
+                                printfn "%A" e.logOp
+                                prettyPrint e.right
         | CallExpr c -> printfn "%A" c
         | GetExpr g -> printfn "%A" g
         | SetExpr s -> printfn "%A" s
@@ -342,11 +339,11 @@ and call ctx =
                         addArguments ctx'' callee ( arg :: arguments  )
                     | ctx'', { matched = None } -> 
                         let ctx''', token = consume ctx'' RIGHT_PAREN "Expected ')' after arguments."
-                        CallExpr (callee, arg :: arguments), ctx'''  // Another break for recursion 
+                        CallExpr { callee = callee; arguments = arg :: arguments}, ctx'''  // Another break for recursion 
         else
                     // No params (or end of input).
                     let ctx', token = consume ctx RIGHT_PAREN "Expected ')' after no arguments."
-                    CallExpr (callee, arguments), ctx'  // Break recursion
+                    CallExpr { callee = callee; arguments = arguments}, ctx'  // Break recursion
             
     let rec walkGetters (ex:expr) (ctx:ParserContext) : expr * ParserContext =
         match matchParser ctx [LEFT_PAREN;DOT] with
@@ -388,7 +385,7 @@ and moreLogical lstTokens parentFunc (ctx, ex1) =
      match matchParser ctx' lstTokens with
      | ctx'', { matched = Some(matchedToken)} -> let ctx''', right = parentFunc ctx''
                                                  let opLogical = makeLogicalOp matchedToken
-                                                 let expr2 = LogicalExpr (ex1, opLogical, right)
+                                                 let expr2 = LogicalExpr { left = ex1; logOp = opLogical; right= right}
                                                  moreLogical lstTokens parentFunc (ctx''', expr2)
      | ctx'', { matched = None } ->
         ctx'', ex1
@@ -401,19 +398,19 @@ and moreBinary lstTokens (ctx,ex1)  =
         | ctx', UnaryExpr u ->match u with 
                                         | PRIMARY p -> 
                                             // Stop recursion
-                                            let expr2 = BinaryExpr (ex1, opBinary, PrimaryExpr p )
+                                            let expr2 = BinaryExpr { left = ex1; binOp = opBinary; right = PrimaryExpr p }
                                             moreBinary lstTokens (ctx', expr2) 
                                             //newCtx, expr2
                                         | UNARY (op,exprRight) -> 
                                             // Recurse
                                             let unRight = UnaryExpr (UNARY (op, exprRight))
-                                            let expr2 = BinaryExpr (ex1, opBinary, unRight )
+                                            let expr2 = BinaryExpr { left = ex1; binOp = opBinary; right = unRight }
                                             moreBinary lstTokens (ctx', expr2) 
-        | ctx', PrimaryExpr p -> let expr2 = BinaryExpr( ex1, opBinary, PrimaryExpr p) // This case needed because primary() function can return lots of things.
+        | ctx', PrimaryExpr p -> let expr2 = BinaryExpr { left = ex1; binOp = opBinary; right = PrimaryExpr p} // This case needed because primary() function can return lots of things.
                                  moreBinary lstTokens (ctx', expr2) 
-        | ctx', GroupingExpr g ->   let expr2 = BinaryExpr( ex1, opBinary, GroupingExpr g)
+        | ctx', GroupingExpr g ->   let expr2 = BinaryExpr { left = ex1; binOp = opBinary; right = GroupingExpr g}
                                     moreBinary lstTokens (ctx', expr2) 
-        | ctx', BinaryExpr b -> moreBinary lstTokens (ctx', BinaryExpr( ex1, opBinary, BinaryExpr b))
+        | ctx', BinaryExpr b -> moreBinary lstTokens (ctx', BinaryExpr {left= ex1; binOp = opBinary; right = BinaryExpr b})
         | _ -> failwith "did not expect any other kind of exprssion"
     | ctx', { matched = None } ->
         ctx', ex1

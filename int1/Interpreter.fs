@@ -347,10 +347,9 @@ let rec evalExpression (e:expr) (env:Environment) =
     match e with 
         | AssignExpr e ->       let value, env' = evalExpression e.value env
                                 assignValue value env' e.id 
-        | BinaryExpr e ->       let left,op,right = e
-                                let leftValue, env' = evalExpression left env
-                                let rightValue, env'' = evalExpression right env'
-                                match op with
+        | BinaryExpr e ->       let leftValue, env' = evalExpression e.left env
+                                let rightValue, env'' = evalExpression e.right env'
+                                match e.binOp with
                                 | ADD_OP add_operator.MINUS  -> NUMBER (CNUMBER leftValue - CNUMBER rightValue), env''
                                 | MULTIPLY_OP DIV -> NUMBER (CNUMBER leftValue / CNUMBER rightValue), env''
                                 | MULTIPLY_OP MUL -> NUMBER (CNUMBER leftValue * CNUMBER rightValue), env''
@@ -381,23 +380,20 @@ let rec evalExpression (e:expr) (env:Environment) =
                             | Parser.THIS t -> lookupVariable t env, env
                             | Parser.SUPER s -> lookupVariable s env, env
         | GroupingExpr e ->    evalExpression e env
-        | LogicalExpr e -> let left,op,right = e    
-                           let leftValue, env' = evalExpression left env
-                           match op with
+        | LogicalExpr e -> let leftValue, env' = evalExpression e.left env
+                           match e.logOp with
                                 | logical_operator.AND -> if not (isTruthy leftValue) then  
                                                             leftValue, env'
                                                           else
-                                                            let rightValue, env'' = evalExpression right env'
+                                                            let rightValue, env'' = evalExpression e.right env'
                                                             rightValue, env''
 
                                 | logical_operator.OR -> if isTruthy leftValue then  
                                                             leftValue, env'
                                                          else
-                                                            let rightValue, env'' = evalExpression right env'
+                                                            let rightValue, env'' = evalExpression e.right env'
                                                             rightValue, env''
-        | CallExpr e -> let calleeName, args = e
-                        
-                        // Evaluate parameters in order
+        | CallExpr e -> // Evaluate parameters in order
 
                         // TBD: Can't use map, because need to thread the ENV through (I think env can change???)
                         let rec evalArgsInOrder (newList:Literal list) (args:expr list) (env:Environment) =
@@ -406,9 +402,9 @@ let rec evalExpression (e:expr) (env:Environment) =
                             | arg::xs -> let lit, env' = evalExpression arg env
                                          evalArgsInOrder (lit :: newList) xs env'  
 
-                        let evaluatedArgs, _, env1 = evalArgsInOrder [] args env
+                        let evaluatedArgs, _, env1 = evalArgsInOrder [] e.arguments env
 
-                        let floxFunction, env2 = evalExpression calleeName env1
+                        let floxFunction, env2 = evalExpression e.callee env1
 
                         match floxFunction with 
                         | CALL c -> callFunction c evaluatedArgs env2

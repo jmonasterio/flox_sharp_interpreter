@@ -91,9 +91,8 @@ let rec resolveExpression (e:expr) (ctx:ResolverContext) : ResolverContext =
                                        |> resolveLocal e.id
 
                                 
-        | BinaryExpr e ->       let left,op,right = e // TBD: Recrod
-                                ctx |> resolveExpression left
-                                    |> resolveExpression right
+        | BinaryExpr e ->       ctx |> resolveExpression e.left
+                                    |> resolveExpression e.right
         | UnaryExpr e ->        match e with 
                                 | UNARY (op,right) ->   ctx |> resolveExpression right
                                 | PRIMARY p -> resolveExpression (PrimaryExpr p) ctx
@@ -119,17 +118,15 @@ let rec resolveExpression (e:expr) (ctx:ResolverContext) : ResolverContext =
                                                         visitVariableExpr { name="super";guid=s.guid} ctx
                                     | _ -> ctx //easiest of all
         | GroupingExpr e ->   ctx |> resolveExpression e
-        | LogicalExpr e ->  let left,op,right = e    
-                            ctx |> resolveExpression left
-                                |> resolveExpression right
-        | CallExpr e -> let calleeName, args = e
-                        let rec resolveArgumentExpressions (args:expr list) (ctx:ResolverContext) : ResolverContext =
+        | LogicalExpr e ->    ctx |> resolveExpression e.left
+                                |> resolveExpression e.right
+        | CallExpr e -> let rec resolveArgumentExpressions (args:expr list) (ctx:ResolverContext) : ResolverContext =
                             match args with
                             | [] -> ctx
                             | x::xs -> ctx |> resolveExpression x |> resolveArgumentExpressions xs 
-                        ctx |> resolveExpression calleeName
+                        ctx |> resolveExpression e.callee
                             //|> beginScope
-                            |> resolveArgumentExpressions args
+                            |> resolveArgumentExpressions e.arguments
                             //|> endScope
         | GetExpr e -> ctx |> resolveExpression e.object
         | SetExpr e -> ctx |> resolveExpression e.value |> resolveExpression e.object
