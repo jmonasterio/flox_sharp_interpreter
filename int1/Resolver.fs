@@ -1,10 +1,14 @@
 ﻿module Resolver
 
 open Parser
-open Interpreter // Need statments, etc.
+//open Interpreter // Need statments, etc.
 
 
 // Chapter 11: Does semantic analysis after parser to find which declaration every variable refers to. 
+
+let runtimeError m =
+    failwith m
+
 
 type BindingSteps = // BOOK used a boolean here.
     | DECLARED
@@ -17,7 +21,16 @@ type classType =
     | IN_CLASS
     | NO_CLASS
     | IN_SUBCLASS
-    
+
+type ResolveDistance = int
+
+type ResolveDistanceTarget = {
+    dist: ResolveDistance;
+    id: identifier_terminal; // Just here to make debugging easier.
+}
+
+
+type ScopeDistanceMap = Map<UniqueId,ResolveDistanceTarget>
 
 type ResolverContext = {
     scopes: ScopeMapList

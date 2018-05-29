@@ -1,4 +1,10 @@
-﻿If parsers has any errors, we should not go to resolver, etc.
+﻿Break out tests into F# code:
+	[<Test>]
+	let ``Can parse and solve addition problems`` () =
+		Assert.That(solve "What is 1 plus 1?", Is.EqualTo(Some 2))
+
+
+If parsers has any errors, we should not go to resolver, etc.
 
 
 InterpreterContext

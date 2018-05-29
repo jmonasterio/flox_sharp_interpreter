@@ -5,11 +5,16 @@
     <TargetFramework>netcoreapp2.0</TargetFramework>
   </PropertyGroup>
 
+  <PropertyGroup Condition="'$(Configuration)|$(Platform)'=='Debug|AnyCPU'">
+    <PlatformTarget>AnyCPU</PlatformTarget>
+  </PropertyGroup>
+
   <ItemGroup>
     <Compile Include="Scanner.fs" />
     <Compile Include="Parser.fs" />
-    <Compile Include="Interpreter.fs" />
     <Compile Include="Resolver.fs" />
+    <Compile Include="Interpreter.fs" />
+    <Compile Include="Tests.fs" />
     <Compile Include="Main.fs" />
   </ItemGroup>
 
@@ -20,6 +25,10 @@
   <ItemGroup>
     <None Include="tests.jlox" />
     <None Include="tests2.jlox" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <PackageReference Update="FSharp.Core" Version="4.3.4" />
   </ItemGroup>
 
 </Project>

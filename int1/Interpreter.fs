@@ -1,23 +1,14 @@
 ﻿module Interpreter
 //open Scanner
+open System
+open System.IO
 open Parser
+open Resolver
 open System.Linq
 open Scanner
 
 //type UniqueId = System.Guid // Added by the resolver pass, later.
 
-let runtimeError m =
-    failwith m
-
-type ResolveDistance = int
-
-type ResolveDistanceTarget = {
-    dist: ResolveDistance;
-    id: identifier_terminal; // Just here to make debugging easier.
-}
-
-
-type ScopeDistanceMap = Map<UniqueId,ResolveDistanceTarget>
 
 type decl_types = 
     | DECL of function_statement // For lox code    
@@ -618,3 +609,26 @@ let interpret (statements:Stmt list) (scopeDistanceMap: ScopeDistanceMap) : unit
     | :? System.Exception as ex -> runtimeError ex.Message
 
 
+let run source =
+    let tokens = scan source
+    try
+        //printfn "%A" tokens
+        let statementList = parse tokens
+
+        // Semantic analsysis passes
+        let scopeDistanceMap = resolverPass statementList // Does a second pass on all the sta
+
+        //printfn "%A" statementList
+        interpret statementList scopeDistanceMap
+    with
+    | :? System.Exception as ex -> printfn "FAIL: %A" ex.Message
+
+
+let runPrompt x =
+    while true do
+        printf "> "
+        run(Console.ReadLine()) |> ignore
+
+let runFile path =
+    let text = File.ReadAllText path
+    run text

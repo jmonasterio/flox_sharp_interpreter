@@ -2,3 +2,5 @@ int1/bin/
 int1/obj/
 .idea/
 CsLox-master/
+int1vs/
+.vs/int1/DesignTimeBuild/.dtbcache
