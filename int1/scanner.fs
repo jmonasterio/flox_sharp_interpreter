@@ -193,14 +193,15 @@
 
     let numberLiteral  ctx =
 
+        let addTokenWithNumberLiteral ctx =
+            let digitString = ctx.source.[ctx.start .. ctx.current-1]
+            let ff = Double.Parse digitString
+            let literal = Some(NumberLiteral ff)
+            addTokenWithLiteral NUMBER literal digitString ctx 
 
-        let newCtx2 = ctx |> consumeDigits   
-                          |> consumeFractionalPart  
-        // TBD: Cleanup
-        let digitString = ctx.source.[ctx.start .. ctx.current-1]
-        let ff = Double.Parse digitString
-        let literal = Some(NumberLiteral ff)
-        addTokenWithLiteral NUMBER literal digitString newCtx2 
+        ctx |> consumeDigits   
+            |> consumeFractionalPart  
+            |> addTokenWithNumberLiteral
 
         // Active patterns used to pattern match tokens.
     let (|Alpha|_|) (ch:char option) =
