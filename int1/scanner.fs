@@ -1,5 +1,7 @@
 ﻿module Scanner
 
+    // This is the lexer
+
     open System
 
     type TokenType =  LEFT_PAREN| RIGHT_PAREN| LEFT_BRACE| RIGHT_BRACE | COMMA| DOT| MINUS| PLUS| SEMICOLON| SLASH| STAR
@@ -40,12 +42,17 @@
         }
 
 
+    let peek (ctx:ScannerContext)  =
+        Seq.tryItem ctx.current ctx.source // Return None at end.
+
+    let peekNext ctx  =
+        Seq.tryItem (ctx.current + 1) ctx.source // Return None at end.
 
     let advance ctx  =
         let result = {
             ctx with 
                 current = ctx.current+1; 
-                ch = Seq.item ctx.current ctx.source
+                ch = Seq.item ctx.current ctx.source // TBD: Similar to peek
         }
         result
 
@@ -76,7 +83,7 @@
         if isAtEnd ctx then
             (false, ctx)
         else
-            if not (Seq.item ctx.current ctx.source = expected) then
+            if not (peek ctx = Some(expected)) then
                 (false, ctx)
             else
                 (true, { ctx with current = ctx.current + 1;}) // TBD: Is this advance?
@@ -99,18 +106,6 @@
         report ctx.line "" message
         { ctx with hadError = true; }
 
-    let peek (ctx:ScannerContext)  =
-        if isAtEnd ctx then
-            None
-        else
-            Some( Seq.item ctx.current ctx.source )  // Seq.item should be function, repeated
-
-    let peekNext ctx  =
-        let nextPos = ctx.current + 1
-        if( nextPos >= String.length ctx.source) then 
-            None
-        else
-            Some(Seq.item nextPos ctx.source ) // TBD: Try item
 
     let rec consumeUntilEndOfLine ctx =
         if( not ( peek ctx = Some('\n')) && (not (isAtEnd ctx)) ) then
