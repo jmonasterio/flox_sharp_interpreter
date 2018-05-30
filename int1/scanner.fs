@@ -35,6 +35,7 @@
         source: string
         ch: char option // will be None at EOF
         current: int
+        atEnd: bool
         start: int
         line: int
         hadError: bool
@@ -54,6 +55,7 @@
             ctx with 
                 current = ctx.current+1; 
                 ch = newch
+                atEnd = (newch = None)
         }
         result
 
@@ -77,7 +79,7 @@
         addTokenWithLiteral  tokenType literal lexeme ctx
 
     let isAtEnd ctx =
-        ctx.current >= String.length ctx.source // TBD: Cache the length
+        ctx.atEnd
 
     // It's like a conditional "advance". It only consumes the character if it's what we're looking for.
     let matchChar  expected ctx = 
@@ -149,6 +151,7 @@
     let isAlphaNumeric ch =
         isAlpha ch || isDigit ch
 
+    // TBD: Similar to consumeUntilEndOfLine
     let rec consumeDigits ctx =
         if isDigit( peek ctx ) then
             ctx |> advance  
@@ -254,10 +257,11 @@
         {
         source = source;
         current = 0;
+        atEnd = false; // TBD: We might be at end?
         start = 0;
         line = 1;
         hadError = false;
-        ch = None;
+        ch = None; // TBD: Is this really a good idea? We might not be at end?
         tokens = [];
         }
 
@@ -272,10 +276,10 @@
         if not (isAtEnd ctx ) then
                 ctx |> moveToCurrent
                     |> scanToken 
-                    |> scanTokens
+                    |> scanTokens // Recurse
             else
                 ctx |> addToken  EOF "EOF" 
                     |> reverseTokens // List is backwards, because we accumulate from start.
  
     let scan source =
-        ( initScanContext source |> scanTokens  ).tokens
+        ( initScanContext source |> scanTokens  ).tokens // TBD: maybe return context???
