@@ -41,7 +41,7 @@
 
 
 
-    let advance ctx source =
+    let advance source ctx  =
         let result = {
             ctx with 
                 current = ctx.current+1;
@@ -50,7 +50,7 @@
         result
 
 
-    let addTokenWithLiteral ctx tokenType objectLiteral lexeme =
+    let addTokenWithLiteral tokenType objectLiteral lexeme ctx  =
         let token = {
             tokenType = tokenType;
             lexeme = lexeme
@@ -64,16 +64,16 @@
         result
     
     
-    let addToken ctx tokenType lexeme = 
+    let addToken  tokenType lexeme ctx = 
         let literal = None
-        addTokenWithLiteral ctx tokenType literal lexeme
+        addTokenWithLiteral  tokenType literal lexeme ctx
 
-    let isAtEnd ctx source =
+    let isAtEnd source ctx =
         ctx.current >= String.length source
 
     // It's like a conditional "advance". It only consumes the character if it's what we're looking for.
-    let matchChar ctx source expected = 
-        if isAtEnd ctx source then
+    let matchChar  source expected ctx = 
+        if isAtEnd source ctx then
             (false, ctx)
         else
             if not (Seq.item ctx.current source = expected) then
@@ -83,175 +83,169 @@
             
    
  
-    let addTokenOptionalEqual ctx source tokenType tokenTypeWithEqual lexeme = 
-        let (matched,newctx) = matchChar ctx source '='
+    let addTokenOptionalEqual  source tokenType tokenTypeWithEqual lexeme ctx = 
+        let (matched,newctx) = matchChar source '=' ctx 
         if matched then
-            addTokenWithLiteral newctx tokenTypeWithEqual None (lexeme+"=")
+            addTokenWithLiteral  tokenTypeWithEqual None (lexeme+"=") newctx
         else
-            addTokenWithLiteral newctx tokenType None lexeme
+            addTokenWithLiteral  tokenType None lexeme newctx
 
 
     let report line where message =
         printfn "[line %A] Error%A:%A" line where message
 
 
-    let error ctx message =
+    let error  message ctx =
         report ctx.line "" message
         { ctx with hadError = true; }
 
-    let peek ctx source =
-        if isAtEnd ctx source then
-            '\x00'
+    let peek source (ctx:ScannerContext)  =
+        if isAtEnd source ctx then
+            None
         else
-            Seq.item ctx.current source   // change to better syntax
+            Some( Seq.item ctx.current source )  // TBD change to better syntax
 
-    let peekNext ctx (source:string) =
+    let peekNext (source:string) ctx  =
         let nextPos = ctx.current + 1
         if( nextPos >= String.length source) then 
-            '\x00'
+            None
         else
-            Seq.item nextPos source  //source.[nextPos]
+            Some(Seq.item nextPos source ) // TBD: Try item
 
-    let rec consumeUntilEndOfLine ctx source =
-        if( not ( peek ctx source = '\n') && (not (isAtEnd ctx source)) ) then
-            let newctx = advance ctx source
-            consumeUntilEndOfLine newctx source
+    let rec consumeUntilEndOfLine source ctx =
+        if( not ( peek  source ctx = Some('\n')) && (not (isAtEnd source ctx)) ) then
+            ctx |> advance source 
+                |> consumeUntilEndOfLine source
         else
             ctx
     
-    let rec stringLiteral ctx source =
-        if( not ( peek ctx source = '\"') && (not (isAtEnd ctx source)) ) then
+    let rec stringLiteral source ctx =
+        if( not ( peek source ctx = Some('\"')) && (not (isAtEnd source ctx)) ) then
             // Support multiline strings
-            let newCtx = if ( peek ctx source = '\n') then   
+            let newCtx = if ( peek source ctx = Some('\n')) then   
                             { ctx with current = ctx.current+1}
                             else
                             ctx
-            let advancedCtx = advance newCtx source
-            stringLiteral advancedCtx source
+            newCtx |> advance source |> stringLiteral source 
         else
-            if isAtEnd ctx source then
-                error ctx "Unterminated string"
+            if isAtEnd source ctx then
+                error  "Unterminated string" ctx
             else
-                let advancedCtx = advance ctx source // Closing "
+                // TBD: Simplify
+                let advancedCtx = advance source ctx // Closing "
                 let value = source.[advancedCtx.start+1 .. advancedCtx.current-2]
                 let literal = Some(StringLiteral value)
-                addTokenWithLiteral advancedCtx STRING literal value
+                addTokenWithLiteral  STRING literal value advancedCtx
 
 
 
-    let isDigit ch =
+    let isDigit (ch: char option) =
         match ch with
-            |  '0' -> true
-            |  '1' -> true
-            |  '2' -> true
-            |  '3' -> true
-            |  '4' -> true
-            |  '5' -> true
-            |  '6' -> true
-            |  '7' -> true
-            |  '8' -> true
-            |  '9' -> true
+            |  Some(c) when (c >= '0' && c <= '9') -> true
             | _ -> false
 
     let isAlpha ch =
-        (ch >= 'a' && ch <= 'z') || (ch >= 'A' && ch <= 'Z') || ch = '_'
+        match ch with
+        | Some(ch) when (ch >= 'a' && ch <= 'z') || (ch >= 'A' && ch <= 'Z') || ch = '_' -> true
+        | _ -> false
 
     let isAlphaNumeric ch =
         isAlpha ch || isDigit ch
 
-    let rec consumeDigits ctx source =
-        if isDigit( peek ctx source) then
-            let newCtx = advance ctx source 
-            consumeDigits newCtx source
+    let rec consumeDigits source ctx =
+        if isDigit( peek source ctx ) then
+            ctx |> advance source 
+                |> consumeDigits source 
         else
             ctx
 
-    let consumeFractionalPart ctx source =
-        if (peek ctx source) = '.' && isDigit( peekNext ctx source) then
-            let ctxNext = advance ctx source
-            consumeDigits ctxNext source
+    let consumeFractionalPart source ctx =
+        if (peek source ctx) = Some('.') && isDigit( peekNext source ctx) then
+            ctx |> advance source 
+                |> consumeDigits source
         else
             ctx
 
-    let rec identifier ctx (source:string) =
-        if isAlphaNumeric (peek ctx source) then
-            identifier (advance ctx source) source
+    let rec identifier (source:string) ctx  =
+        if isAlphaNumeric (peek source ctx ) then
+            identifier source (advance source ctx ) 
         else
             let text = source.[ctx.start .. ctx.current-1]
             match text with
-                | "and" -> addToken ctx AND text
-                | "class" -> addToken ctx CLASS text
-                | "else" -> addToken ctx ELSE text
-                | "false" -> addToken ctx FALSE text
-                | "for" -> addToken ctx FOR text
-                | "fun" -> addToken ctx FUN text
-                | "if" -> addToken ctx IF text
-                | "nil" -> addToken ctx NIL text
-                | "or" -> addToken ctx OR text
-                | "print" -> addToken ctx PRINT text
-                | "return" -> addToken ctx RETURN text
-                | "super" -> addToken ctx SUPER text
-                | "this" -> addToken ctx THIS text
-                | "true" -> addToken ctx TRUE text
-                | "var" -> addToken ctx VAR text
-                | "while" -> addToken ctx WHILE text
+                | "and" -> addToken  AND text ctx
+                | "class" -> addToken CLASS text ctx
+                | "else" -> addToken  ELSE text ctx
+                | "false" -> addToken  FALSE text ctx
+                | "for" -> addToken  FOR text ctx
+                | "fun" -> addToken  FUN text ctx
+                | "if" -> addToken  IF text ctx
+                | "nil" -> addToken  NIL text ctx
+                | "or" -> addToken  OR text ctx
+                | "print" -> addToken  PRINT text ctx
+                | "return" -> addToken  RETURN text ctx
+                | "super" -> addToken  SUPER text ctx
+                | "this" -> addToken  THIS text ctx
+                | "true" -> addToken  TRUE text ctx
+                | "var" -> addToken  VAR text ctx
+                | "while" -> addToken  WHILE text ctx
                 | _ -> 
                     let identifierLiteral = Some(IdentifierLiteral text)
-                    addTokenWithLiteral ctx IDENTIFIER identifierLiteral text
+                    addTokenWithLiteral IDENTIFIER identifierLiteral text ctx
 
         
 
-    let numberLiteral ctx (source:string) =
-        let newCtx = consumeDigits ctx source
-        let newCtx2 = consumeFractionalPart newCtx source
+    let numberLiteral  (source:string) ctx =
+        let newCtx2 = ctx |> consumeDigits  source 
+                          |> consumeFractionalPart source 
+        // TBD: Cleanup
         let digitString = source.[newCtx2.start .. newCtx2.current-1]
         let ff = Double.Parse digitString
         let literal = Some(NumberLiteral ff)
-        addTokenWithLiteral newCtx2 NUMBER literal digitString
+        addTokenWithLiteral NUMBER literal digitString newCtx2 
 
         // Active patterns used to pattern match tokens.
     let (|Alpha|_|) (ch:char) =
-        if isAlpha ch then
+        if isAlpha (Some(ch)) then
             Some()
         else
             None
 
     let (|Digit|_|) (ch:char) =
-        if isDigit ch then
+        if isDigit (Some(ch)) then
             Some()
         else
             None
 
 
-    let scanToken ctx source =
-        let ctx = advance ctx source
+    let scanToken source ctx =
+        let ctx = advance source ctx
         match ctx.ch with
-            | '(' -> addToken ctx LEFT_PAREN "("
-            | ')' -> addToken ctx RIGHT_PAREN ")"
-            | '{' -> addToken ctx LEFT_BRACE "{"
-            | '}' -> addToken ctx RIGHT_BRACE "}"
-            | ',' -> addToken ctx COMMA ","
-            | '.' -> addToken ctx DOT "."
-            | '-' -> addToken ctx MINUS "-"
-            | '+' -> addToken ctx PLUS "+"
-            | ';' -> addToken ctx SEMICOLON ";"
-            | '*' -> addToken ctx STAR "*"
-            | '!' -> addTokenOptionalEqual ctx source BANG BANG_EQUAL "!"
-            | '=' -> addTokenOptionalEqual ctx source EQUAL EQUAL_EQUAL "="
-            | '<' -> addTokenOptionalEqual ctx source LESS LESS_EQUAL "<"
-            | '>' -> addTokenOptionalEqual ctx source GREATER GREATER_EQUAL ">"
-            | '/' -> let (matched, newctx) = matchChar ctx source '/' 
+            | '(' -> addToken LEFT_PAREN "(" ctx
+            | ')' -> addToken RIGHT_PAREN ")" ctx
+            | '{' -> addToken LEFT_BRACE "{" ctx
+            | '}' -> addToken RIGHT_BRACE "}" ctx
+            | ',' -> addToken COMMA "," ctx
+            | '.' -> addToken DOT "." ctx
+            | '-' -> addToken MINUS "-" ctx
+            | '+' -> addToken PLUS "+" ctx
+            | ';' -> addToken SEMICOLON ";" ctx
+            | '*' -> addToken STAR "*" ctx
+            | '!' -> addTokenOptionalEqual  source BANG BANG_EQUAL "!" ctx
+            | '=' -> addTokenOptionalEqual  source EQUAL EQUAL_EQUAL "=" ctx
+            | '<' -> addTokenOptionalEqual  source LESS LESS_EQUAL "<" ctx
+            | '>' -> addTokenOptionalEqual  source GREATER GREATER_EQUAL ">" ctx
+            | '/' -> let (matched, newctx) = matchChar  source '/'  ctx
                      if  matched then
-                        consumeUntilEndOfLine newctx source
+                        consumeUntilEndOfLine source newctx 
                      else
-                        addToken newctx SLASH "/"
+                        addToken SLASH "/" newctx
             | ' ' -> ctx
             | '\r' -> ctx
             | '\t' -> ctx
             | '\n' -> { ctx with line=ctx.line+1}
-            | '"' -> stringLiteral ctx source
-            | Digit -> numberLiteral ctx source 
-            | Alpha -> identifier ctx source
+            | '"' -> stringLiteral source ctx
+            | Digit -> numberLiteral source ctx 
+            | Alpha -> identifier source ctx
             | _ -> ctx
 
 
@@ -275,17 +269,14 @@
                             }
         result
 
-    let rec scanTokens ctx source : ScannerContext =
-        if not (isAtEnd ctx source) then
+    let rec scanTokens (source:string) (ctx:ScannerContext) : ScannerContext =
+        if not (isAtEnd source ctx ) then
                 let ctx' = moveToCurrent ctx
-                let ctx'' = scanToken ctx' source
-                scanTokens ctx'' source
+                let ctx'' = scanToken source ctx'
+                scanTokens source ctx''
             else
-               let ctx' = addToken ctx EOF "EOF"
+               let ctx' = addToken  EOF "EOF" ctx
                { ctx' with tokens = List.rev ctx'.tokens } // List is backwards, because we accumulate from start.
  
     let scan source =
-        let ctx = initScanContext 
-        let ctx' = scanTokens ctx source
-        //printfn "%A" ctx'.tokens
-        ctx'.tokens
+        ( initScanContext |> scanTokens source ).tokens
