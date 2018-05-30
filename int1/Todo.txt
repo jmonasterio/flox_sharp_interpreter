@@ -1,32 +1,14 @@
-﻿Break out tests into F# code:
-	[<Test>]
-	let ``Can parse and solve addition problems`` () =
-		Assert.That(solve "What is 1 plus 1?", Is.EqualTo(Some 2))
-
+﻿NUnit won't work.
 
 If parsers has any errors, we should not go to resolver, etc.
 
 
-InterpreterContext
-   - ScopesMap
-   - Can I lookup an expression.
-
-then test nested functions with closures.
-
 use map(), etc instead of loop
-
-
-test with a file.
 
 expr.AssignExpr is lame. evalExpression should never change the value of the environment. Only a statement should do that.
 
-in interpreter, the ctx should be env
-
-previous should just be remembered in the context
 Book design had a thing called a literal expr.
 We have an identifier literal. Maybe identifier should be a literal, not use lexeme.
 
-
-Pass grammar to parser, and use it to parse instead of writing recursive descent parsers.
 efficient with really big files?
 

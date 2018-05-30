@@ -50,15 +50,10 @@ let initResolverContext =
 // Calculate the distance to the variable an store in a map
 // 11.4 in book: Where the key is the expr in the syntax tree, which is unique in JAVA (but not in F#)
 let rec resolveLocal (id:identifier_terminal) (ctx:ResolverContext) : ResolverContext =
-    let idName = id.name
-    let optDist = List.tryFindIndex (fun (x:ScopeMap) -> x.ContainsKey idName) ctx.scopes
+    let optDist = List.tryFindIndex (fun (x:ScopeMap) -> x.ContainsKey id.name) ctx.scopes
     match optDist with
-    | Some(dist) -> //let len = List.length ctx.scopes
-                    let offset = dist // len-dist-1
-                    //printfn "ID: %A DIST: %A" id offset
-                    { ctx with distanceMap = (ctx.distanceMap.Add( id.guid, { id=id; dist=offset;})) }
-    | None ->    // TBD:If not found then assume global.
-                 ctx
+    | Some(dist) -> { ctx with distanceMap = (ctx.distanceMap.Add( id.guid, { id=id; dist=dist;})) }
+    | None ->    ctx
 
 let beginScope ctx = 
     let scopeMap = [] |> Map.ofSeq
@@ -100,7 +95,6 @@ let rec resolveExpression (e:expr) (ctx:ResolverContext) : ResolverContext =
     match e with 
         | AssignExpr e ->          
                                    ctx |> resolveExpression e.value
-                                       //|> define e.id // <-- This not in book. Trying to fix : var x; x=2; print x; 
                                        |> resolveLocal e.id
 
                                 
@@ -118,8 +112,6 @@ let rec resolveExpression (e:expr) (ctx:ResolverContext) : ResolverContext =
                                                         | functionKind.NONE | functionKind.FUNCTION -> if ctx.enclosingClass = NO_CLASS then
                                                                                                             failwith "Cannot use 'this' outside of a class."
                                                         | _ -> () // No error
-                                                        //| functionKind.METHOD -> visitVariableExpr t ctx
-                                                        //| functionKind.INITIALIZER -> failwith "Cannot use 'this' in constructor." // I don't think book covered this case.
                                                         visitVariableExpr t ctx
                                     | Parser.SUPER s -> match ctx.enclosingClass with
                                                         | NO_CLASS -> failwith "Cannot use 'super' outside of a class."; // TBD: Lox.error
@@ -143,9 +135,6 @@ let rec resolveExpression (e:expr) (ctx:ResolverContext) : ResolverContext =
                             //|> endScope
         | GetExpr e -> ctx |> resolveExpression e.object
         | SetExpr e -> ctx |> resolveExpression e.value |> resolveExpression e.object
-  //      | ThisExpr -> ctx |> resolveLocal ({name="this"; guid=newGuid() }) 
-                            
-                            
 
 let resolveOptionalExpression (e:expr option) (ctx:ResolverContext) = 
     match e with 
@@ -153,11 +142,9 @@ let resolveOptionalExpression (e:expr option) (ctx:ResolverContext) =
     | Some(ex) -> resolveExpression ex ctx
 
 let visitVariableStmt (ex:expr) (id: identifier_terminal) (ctx:ResolverContext) : ResolverContext =
-   
    ctx |> declare id 
        |> resolveExpression ex
        |> define id
-
 
 // TBD: Turn into a map
 let rec declareParams (p:identifier_terminal list) (ctx:ResolverContext) =
@@ -173,71 +160,62 @@ let setInFunction flag ctx =
 
 let rec resolveSingleStatement statement (ctx:ResolverContext) : ResolverContext =
             match statement with 
-                                | ExpressionStmt e -> ctx |> resolveExpression e
-                                | PrintStmt p ->  ctx |> resolveExpression p
-                                | VariableStmt {name=name;initializer=None} -> ctx |> declare name
+            | ExpressionStmt e -> ctx |> resolveExpression e
+            | PrintStmt p ->  ctx |> resolveExpression p
+            | VariableStmt {name=name;initializer=None} -> ctx |> declare name
                                                                     
-                                | VariableStmt {name=name;initializer=Some(expr.PrimaryExpr e)} -> visitVariableStmt (PrimaryExpr e) name ctx
-                                | VariableStmt {name=name;initializer=Some(expr.UnaryExpr e)} ->     visitVariableStmt ( UnaryExpr e) name ctx
-                                | VariableStmt {name=name;initializer=Some(expr.BinaryExpr e)} ->    visitVariableStmt ( BinaryExpr e) name ctx 
-                                | VariableStmt {name=name;initializer=Some(expr.GroupingExpr e)} ->  visitVariableStmt ( GroupingExpr e) name ctx
-                                | VariableStmt {name=name;initializer=Some(expr.AssignExpr e)} ->  visitVariableStmt ( AssignExpr e) name ctx
-                                | VariableStmt {name=name;initializer=Some(expr.LogicalExpr e)} ->  visitVariableStmt ( LogicalExpr e) name ctx  
-                                | VariableStmt {name=name;initializer=Some(expr.CallExpr e)} ->  visitVariableStmt ( CallExpr e) name ctx 
-                                | BlockStmt stmts ->   ctx |> beginScope 
-                                                            |> resolveStatements stmts
-                                                            |> endScope 
-                                | VariableStmt {name=name;initializer=Some(expr.GetExpr e)} ->  visitVariableStmt ( GetExpr e) name ctx 
-                                | VariableStmt {name=name;initializer=Some(expr.SetExpr e)} ->  visitVariableStmt ( SetExpr e) name ctx 
-                                | IfStmt ifs -> ctx |> resolveExpression ifs.condition
-                                                         |> resolveSingleStatement ifs.thenBranch
-                                                         |> resolveOptionalSingleStatement ifs.elseBranch 
-                                | ForStmt forStmt ->   ctx |> resolveOptionalSingleStatement forStmt.initializer
-                                                                |> resolveOptionalExpression forStmt.condition
-                                                                |> resolveOptionalSingleStatement forStmt.increment
-                                                                |> resolveSingleStatement forStmt.body
-                                | WhileStmt whileStmt ->   ctx |> resolveExpression whileStmt.condition
-                                                                    |> resolveSingleStatement whileStmt.body
-                                | FunctionStmt funcStmt ->     ctx |> declare funcStmt.id
-                                                                        |> define funcStmt.id 
-                                                                        |> resolveFunction funcStmt functionKind.FUNCTION
-                                | ReturnStmt returnStmt -> // We return values back through call stack instead of THROW that book uses.
-                                                                match ctx.enclosingFunction with
-                                                                | functionKind.FUNCTION -> ctx |> resolveExpression ( returnStmt.value ) 
-                                                                | functionKind.METHOD -> ctx |> resolveExpression ( returnStmt.value ) 
-                                                                | functionKind.INITIALIZER -> failwith "Cannot return a value from an initializer."
-                                                                | functionKind.NONE -> failwith "Cannot return from top-level code"
+            | VariableStmt {name=name;initializer=Some(expr.PrimaryExpr e)} -> visitVariableStmt (PrimaryExpr e) name ctx
+            | VariableStmt {name=name;initializer=Some(expr.UnaryExpr e)} ->     visitVariableStmt ( UnaryExpr e) name ctx
+            | VariableStmt {name=name;initializer=Some(expr.BinaryExpr e)} ->    visitVariableStmt ( BinaryExpr e) name ctx 
+            | VariableStmt {name=name;initializer=Some(expr.GroupingExpr e)} ->  visitVariableStmt ( GroupingExpr e) name ctx
+            | VariableStmt {name=name;initializer=Some(expr.AssignExpr e)} ->  visitVariableStmt ( AssignExpr e) name ctx
+            | VariableStmt {name=name;initializer=Some(expr.LogicalExpr e)} ->  visitVariableStmt ( LogicalExpr e) name ctx  
+            | VariableStmt {name=name;initializer=Some(expr.CallExpr e)} ->  visitVariableStmt ( CallExpr e) name ctx 
+            | BlockStmt stmts ->   ctx |> beginScope 
+                                        |> resolveStatements stmts
+                                        |> endScope 
+            | VariableStmt {name=name;initializer=Some(expr.GetExpr e)} ->  visitVariableStmt ( GetExpr e) name ctx 
+            | VariableStmt {name=name;initializer=Some(expr.SetExpr e)} ->  visitVariableStmt ( SetExpr e) name ctx 
+            | IfStmt ifs -> ctx |> resolveExpression ifs.condition
+                                        |> resolveSingleStatement ifs.thenBranch
+                                        |> resolveOptionalSingleStatement ifs.elseBranch 
+            | ForStmt forStmt ->   ctx |> resolveOptionalSingleStatement forStmt.initializer
+                                            |> resolveOptionalExpression forStmt.condition
+                                            |> resolveOptionalSingleStatement forStmt.increment
+                                            |> resolveSingleStatement forStmt.body
+            | WhileStmt whileStmt ->   ctx |> resolveExpression whileStmt.condition
+                                                |> resolveSingleStatement whileStmt.body
+            | FunctionStmt funcStmt ->     ctx |> declare funcStmt.id
+                                                    |> define funcStmt.id 
+                                                    |> resolveFunction funcStmt functionKind.FUNCTION
+            | ReturnStmt returnStmt -> // We return values back through call stack instead of THROW that book uses.
+                                            match ctx.enclosingFunction with
+                                            | functionKind.FUNCTION -> ctx |> resolveExpression ( returnStmt.value ) 
+                                            | functionKind.METHOD -> ctx |> resolveExpression ( returnStmt.value ) 
+                                            | functionKind.INITIALIZER -> failwith "Cannot return a value from an initializer."
+                                            | functionKind.NONE -> failwith "Cannot return from top-level code"
 
 
-                                | ClassStmt cls ->   
-                                                       #if OLD 
-                                                       let rec addMethod lst kind ctx = // TBD: Isn't this just  FOLD?
-                                                          match lst with
-                                                          | [] -> ctx
-                                                          | meth::xs -> ctx |> resolveFunction meth kind 
-                                                                            |> addMethod xs kind 
-                                                        #endif
-                                
-                                                       let enclosingClass =ctx.enclosingClass
+            | ClassStmt cls ->      let enclosingClass =ctx.enclosingClass
 
-                                                       let calcFuncKind (funcStmt:function_statement) = match funcStmt.id.name with
-                                                                                                        | "init" -> functionKind.INITIALIZER // So we can error if initializer tries to return a value.
-                                                                                                        | _ -> functionKind.METHOD
+                                    let calcFuncKind (funcStmt:function_statement) = match funcStmt.id.name with
+                                                                                    | "init" -> functionKind.INITIALIZER // So we can error if initializer tries to return a value.
+                                                                                    | _ -> functionKind.METHOD
                                                        
-                                                       ctx |> setInClass (if cls.superclass = None then IN_CLASS else IN_SUBCLASS)
-                                                           |> declare cls.name 
-                                                           |> define cls.name
-                                                           |> resolveLocal cls.name
-                                                           |> resolveSuperclass cls.superclass
-                                                           |> beginScope
-                                                           |> addThisToScope
-                                                           //|> addMethod cls.methods  METHOD
-                                                           |> List.foldBack (fun meth -> resolveFunction meth (calcFuncKind meth)) cls.methods
-                                                           |> endScope
-                                                           |> endOptionalSuperClassScope cls.superclass
-                                                           |> setInClass enclosingClass
+                                    ctx |> setInClass (if cls.superclass = None then IN_CLASS else IN_SUBCLASS)
+                                        |> declare cls.name 
+                                        |> define cls.name
+                                        |> resolveLocal cls.name
+                                        |> resolveSuperclass cls.superclass
+                                        |> beginScope
+                                        |> addThisToScope
+                                        //|> addMethod cls.methods  METHOD
+                                        |> List.foldBack (fun meth -> resolveFunction meth (calcFuncKind meth)) cls.methods
+                                        |> endScope
+                                        |> endOptionalSuperClassScope cls.superclass
+                                        |> setInClass enclosingClass
 
-                                | _ -> failwith "unknown statement type"
+            | _ -> failwith "unknown statement type"
 
 and resolveFunction (f:function_statement) (kind:functionKind)  ctx =
     let currentFunction = ctx.enclosingFunction // See 11.5.1: Detecting return outside of function.
@@ -261,14 +239,12 @@ and resolveStatements( statements:Stmt list) (ctx: ResolverContext)  : ResolverC
     | s :: xs -> 
         ctx |> resolveSingleStatement s 
             |> resolveStatements xs 
-        // TODO: Remove this if you don't want to print intermediate results.
-        //printfn "%s" (toString result) |> ignore
+
 and resolveSuperclass (superIdOpt:identifier_terminal option) (ctx:ResolverContext) : ResolverContext =
         match superIdOpt with 
         | Some( id) ->  let superId =  { name = "super"; guid = newGuid() }
                         ctx |> resolveLocal id
                            |> beginScope // Superclass support
-                           //|> addSuperClassToScope id // Superclass support
                            |> declare superId // superclass
                            |> define superId
         | None -> ctx

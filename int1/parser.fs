@@ -141,10 +141,6 @@ let rec prettyPrint (e:expr)  =
         | CallExpr c -> printfn "%A" c
         | GetExpr g -> printfn "%A" g
         | SetExpr s -> printfn "%A" s
- //       | ThisExpr -> printfn "THIS"
-        //| _ -> failwith "Not expected."
-
-
 
 type ParserContext = {
     current: int
@@ -187,13 +183,13 @@ let check ctx matchTokenType =
         token.tokenType = matchTokenType
 
 
-// The most recently consume token (might be better to just store that).
+// TBD: The most recently consume token (might be better to just store that).
 let previous ctx =
     ctx.tokens.[ctx.current-1]
 
 let advance ctx = 
     if not (isAtEnd ctx) then
-        let ctx' = { ctx with current=ctx.current+1 } // THis is stupid.
+        let ctx' = { ctx with current=ctx.current+1 }
         (previous ctx', ctx')
         
     else
@@ -327,19 +323,18 @@ and call ctx =
                     let ctx', token = consume ctx RIGHT_PAREN "Expected ')' after no arguments."
                     CallExpr { callee = callee; arguments = arguments}, ctx'  // Break recursion
             
-    let rec walkGetters (ex:expr) (ctx:ParserContext) : expr * ParserContext =
+    let rec walkGetters ((ex:expr), (ctx:ParserContext)) : expr * ParserContext =
         match matchParser ctx [LEFT_PAREN;DOT] with
         | ctx'', { matched = Some(tok) } ->  match tok.tokenType with 
                                              | TokenType.LEFT_PAREN -> let ctx''',ex2 = addArguments ctx'' ex []
-                                                                       walkGetters ctx''' ex2
+                                                                       walkGetters (ctx''', ex2)
                                              | TokenType.DOT -> let ctx''', name = consume ctx'' TokenType.IDENTIFIER "Expect property name after '.'."
                                                                 let expr = GetExpr( { object=ex; id={ name = name.lexeme; guid= newGuid() }})
-                                                                walkGetters expr ctx'''
+                                                                walkGetters (expr, ctx''')
                                              | _ -> ex,ctx'' // TBD: I think this case is impossible.
         | ctx'', { matched = None } -> ex, ctx'' // Expression
 
-    let ex1, ctx' = primary ctx
-    walkGetters ex1 ctx'
+    ctx |> primary |> walkGetters
 
  // Have to use "AND" below because expression is circular.
 and unary ctx : ParserContext* expr   =
@@ -361,7 +356,6 @@ and unary ctx : ParserContext* expr   =
         let result, ctx2 = call ctx' // TBD results in this file are all backwards so chaining doesn't work.
         ctx2,result 
 and moreLogical lstTokens parentFunc (ctx, ex1) =
-     //let ctx', expr = parentFunc ctx
      let ctx' = ctx
 
      match matchParser ctx' lstTokens with

@@ -73,8 +73,6 @@ and loxFunction =
         isInitializer: bool // TBD: Hate bools
     }
 
-
-
 let rec wrapClosure (env:Environment) (closureKey:ClosureKey) =
     if closureKey = -1 then
         env
@@ -156,19 +154,14 @@ let popScope env =
 
 let rec ancestor dist scopes =
     match List.tryItem  dist scopes with
-        | Some enc -> enc
-        | _ -> failwith "ancestor not found."
+    | Some enc -> enc
+    | _ -> failwith "ancestor not found."
 
 
 type param = {
     name: identifier_terminal
     value: Literal
     }
-
-type tempx = {
-     lit: Literal;
-     env: Environment; }
-
 
 let initScope (enc:LoxEnvironment option) =
     {
@@ -210,9 +203,7 @@ let assignValue value env (id:identifier_terminal) =
         if dist < 0 || dist > (List.length env.localScopes) then
             failwith "Index out of range"
         else 
-            let len = List.length env.localScopes
-            let offset = dist //len - dist -1
-            let scope = env.localScopes.Item offset
+            let scope = env.localScopes.Item dist
             let newMap = scope.values.Add(id.name, value)
             let newScope = { scope with values = newMap }
             // TBD: Check for out of range
@@ -417,8 +408,8 @@ let rec evalExpression (e:expr) (env:Environment) =
                         | _ -> failwith "Only instances have fields"
 
 
-and evalFor forStmt lastResult env =
-    failwith "Should not get here, because for loop desugared into a while loop."
+//and evalFor forStmt lastResult env =
+//    failwith "Should not get here, because for loop desugared into a while loop."
 and evalIf (ifs:if_statement) lastResult env =
     let lit, env' = evalExpression ifs.condition env
     if isTruthy lit then
@@ -468,7 +459,7 @@ and execSingleStatement statement lastResult env =
                                                         lit, popScope env2
                                         
                                 | IfStmt ifs -> evalIf ifs lastResult env
-                                | ForStmt forStmt -> evalFor forStmt lastResult env
+                                // DESUGARED: | ForStmt forStmt -> evalFor forStmt lastResult env
                                 | WhileStmt whileStmt ->   evalWhile whileStmt lastResult env
                                 | FunctionStmt funcStmt ->     // Interpreting a function definition adds it to the environment.
                                                                     // 
@@ -608,13 +599,15 @@ let interpret ((statements:Stmt list), (scopeDistanceMap: ScopeDistanceMap)) : u
     with 
     | :? System.Exception as ex -> runtimeError ex.Message
 
+
+
 // TBD: These chain together, but barely. The types passed around are really lame.
 let run source =
     try
-        scan source 
-            |> parse 
-            |> resolverPass  // Semantic analsysis passes
-            |> interpret
+        source  |> scan 
+                |> parse 
+                |> resolverPass  // Semantic analsysis passes
+                |> interpret
     with
     | :? System.Exception as ex -> printfn "FAIL: %A" ex.Message
 

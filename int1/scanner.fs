@@ -283,5 +283,9 @@
                 ctx |> addToken  EOF "EOF" 
                     |> reverseTokens // List is backwards, because we accumulate from start.
  
+    
     let scan source =
-        ( initScanContext source |> scanTokens  ).tokens // TBD: maybe return context???
+        let sw = System.Diagnostics.Stopwatch.StartNew()
+        let result = initScanContext source |> scanTokens;
+        printfn "LEXER TIME: %A" sw.Elapsed;
+        result.tokens; // TBD: maybe return context???
