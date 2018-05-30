@@ -44,7 +44,7 @@
     let advance source ctx  =
         let result = {
             ctx with 
-                current = ctx.current+1;
+                current = ctx.current+1; 
                 ch = Seq.item ctx.current source
         }
         result
@@ -69,7 +69,7 @@
         addTokenWithLiteral  tokenType literal lexeme ctx
 
     let isAtEnd source ctx =
-        ctx.current >= String.length source
+        ctx.current >= String.length source // TBD: Cache the length
 
     // It's like a conditional "advance". It only consumes the character if it's what we're looking for.
     let matchChar  source expected ctx = 
@@ -79,15 +79,15 @@
             if not (Seq.item ctx.current source = expected) then
                 (false, ctx)
             else
-                (true, { ctx with current = ctx.current + 1;})
+                (true, { ctx with current = ctx.current + 1;}) // TBD: Is this advance?
             
    
  
     let addTokenOptionalEqual  source tokenType tokenTypeWithEqual lexeme ctx = 
-        let (matched,newctx) = matchChar source '=' ctx 
-        if matched then
+        match matchChar source '=' ctx with
+        | (true,newctx) ->
             addTokenWithLiteral  tokenTypeWithEqual None (lexeme+"=") newctx
-        else
+        | (false, newctx) ->
             addTokenWithLiteral  tokenType None lexeme newctx
 
 
@@ -123,7 +123,7 @@
         if( not ( peek source ctx = Some('\"')) && (not (isAtEnd source ctx)) ) then
             // Support multiline strings
             let newCtx = if ( peek source ctx = Some('\n')) then   
-                            { ctx with current = ctx.current+1}
+                            { ctx with current = ctx.current+1} // TBD: Is this 'advance'?
                             else
                             ctx
             newCtx |> advance source |> stringLiteral source 
@@ -160,11 +160,11 @@
             ctx
 
     let consumeFractionalPart source ctx =
-        if (peek source ctx) = Some('.') && isDigit( peekNext source ctx) then
+        match peek source ctx with 
+        | Some('.') when isDigit( peekNext source ctx) ->
             ctx |> advance source 
                 |> consumeDigits source
-        else
-            ctx
+        | _ -> ctx
 
     let rec identifier (source:string) ctx  =
         if isAlphaNumeric (peek source ctx ) then
@@ -195,10 +195,12 @@
         
 
     let numberLiteral  (source:string) ctx =
+
+
         let newCtx2 = ctx |> consumeDigits  source 
                           |> consumeFractionalPart source 
         // TBD: Cleanup
-        let digitString = source.[newCtx2.start .. newCtx2.current-1]
+        let digitString = source.[ctx.start .. ctx.current-1]
         let ff = Double.Parse digitString
         let literal = Some(NumberLiteral ff)
         addTokenWithLiteral NUMBER literal digitString newCtx2 
@@ -252,31 +254,30 @@
 
 
     let initScanContext  =
-        let newCtx = {
-            current = 0;
-            start = 0;
-            line = 1;
-            hadError = false;
-            ch = ' ';
-            tokens = [];
-            }
-        newCtx    
+        {
+        current = 0;
+        start = 0;
+        line = 1;
+        hadError = false;
+        ch = ' ';
+        tokens = [];
+        }
 
 
     let moveToCurrent ctx:ScannerContext =
-        let result =  { ctx with
-                            start = ctx.current;
-                            }
-        result
+        { ctx with start = ctx.current; }
+
+    let reverseTokens ctx:ScannerContext =
+        { ctx with tokens = List.rev ctx.tokens }
 
     let rec scanTokens (source:string) (ctx:ScannerContext) : ScannerContext =
         if not (isAtEnd source ctx ) then
-                let ctx' = moveToCurrent ctx
-                let ctx'' = scanToken source ctx'
-                scanTokens source ctx''
+                ctx |> moveToCurrent
+                    |> scanToken source 
+                    |> scanTokens source
             else
-               let ctx' = addToken  EOF "EOF" ctx
-               { ctx' with tokens = List.rev ctx'.tokens } // List is backwards, because we accumulate from start.
+                ctx |> addToken  EOF "EOF" 
+                    |> reverseTokens // List is backwards, because we accumulate from start.
  
     let scan source =
         ( initScanContext |> scanTokens source ).tokens
