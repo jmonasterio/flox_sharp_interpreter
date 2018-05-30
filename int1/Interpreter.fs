@@ -595,7 +595,7 @@ and callFunction (c:loxCallable) (args:Literal list) (envIn:Environment) : Liter
         lit, { envIn with closures = envClosureOut.closures.Add( c.closureKey, envClosureOut.localScopes); } 
 
         
-let interpret (statements:Stmt list) (scopeDistanceMap: ScopeDistanceMap) : unit = 
+let interpret ((statements:Stmt list), (scopeDistanceMap: ScopeDistanceMap)) : unit = 
     try
         let env = initEnvironment scopeDistanceMap
 
@@ -608,18 +608,13 @@ let interpret (statements:Stmt list) (scopeDistanceMap: ScopeDistanceMap) : unit
     with 
     | :? System.Exception as ex -> runtimeError ex.Message
 
-
+// TBD: These chain together, but barely. The types passed around are really lame.
 let run source =
-    let tokens = scan source
     try
-        //printfn "%A" tokens
-        let statementList = parse tokens
-
-        // Semantic analsysis passes
-        let scopeDistanceMap = resolverPass statementList // Does a second pass on all the sta
-
-        //printfn "%A" statementList
-        interpret statementList scopeDistanceMap
+        scan source 
+            |> parse 
+            |> resolverPass  // Semantic analsysis passes
+            |> interpret
     with
     | :? System.Exception as ex -> printfn "FAIL: %A" ex.Message
 

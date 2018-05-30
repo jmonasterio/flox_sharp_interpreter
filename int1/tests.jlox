@@ -208,3 +208,10 @@ print "TEST #25";
 //}
 
 //super.notEvenInAClass();
+
+print "TEST #26";
+print "hello
+my
+name
+is
+mud";

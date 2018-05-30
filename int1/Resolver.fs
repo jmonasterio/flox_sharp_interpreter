@@ -277,9 +277,9 @@ and endOptionalSuperClassScope (superIdOpt:identifier_terminal option) (ctx:Reso
         | Some( id) -> ctx |> endScope
         | None -> ctx        
 
-let resolverPass (statements:Stmt list) : ScopeDistanceMap = // THIS IS PROBLEM. Need to return a new statmentList with annotations.
+let resolverPass (statements:Stmt list)  = // THIS IS PROBLEM. Need to return a new statmentList with annotations.
     try
         let ctx = initResolverContext |> resolveStatements statements
-        ctx.distanceMap
+        (statements,ctx.distanceMap) // So we can chain
     with 
     | :? System.Exception as ex -> runtimeError ex.Message

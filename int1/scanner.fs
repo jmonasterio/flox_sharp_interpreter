@@ -83,14 +83,9 @@
 
     // It's like a conditional "advance". It only consumes the character if it's what we're looking for.
     let matchChar  expected ctx = 
-        if isAtEnd ctx then
-            (false, ctx)
-        else
-            if not (peek ctx = Some(expected)) then
-                (false, ctx)
-            else
-                (true, advance ctx) 
-            
+        match peek ctx with
+        | Some(ch) when ch = expected -> (true, advance ctx)
+        | _ -> (false, ctx)
    
  
     let addTokenOptionalEqual  tokenType tokenTypeWithEqual lexeme ctx = 
@@ -117,15 +112,17 @@
         else
             ctx
     
-    // TBD: Does this work???
+
+    let advanceIfMatch ch ctx =
+        if ( peek ctx = Some(ch)) then   
+            advance ctx
+        else
+            ctx
+
     let rec stringLiteral ctx =
         if( not ( peek ctx = Some('\"')) && (not (isAtEnd ctx)) ) then
             // Support multiline strings
-            let newCtx = if ( peek ctx = Some('\n')) then   
-                                advance ctx
-                            else
-                            ctx
-            newCtx |> advance  |> stringLiteral  
+            ctx |> advanceIfMatch '\n' |> advance  |> stringLiteral  
         else
             if isAtEnd ctx then
                 error  "Unterminated string" ctx
@@ -219,6 +216,14 @@
             None
 
 
+    let addCommentOrSlash ctx =
+        match matchChar   '/'  ctx with
+        |  (true, newctx) -> consumeUntilEndOfLine newctx 
+        | (false, newctx) -> addToken SLASH "/" newctx
+
+    let advanceLine (ctx:ScannerContext) =
+        { ctx with line=ctx.line+1}
+
     let scanToken ctx =
         let ctx = advance  ctx
         match ctx.ch with
@@ -236,15 +241,11 @@
             | Some( '=' ) -> addTokenOptionalEqual   EQUAL EQUAL_EQUAL "=" ctx
             | Some( '<' ) -> addTokenOptionalEqual   LESS LESS_EQUAL "<" ctx
             | Some( '>' ) -> addTokenOptionalEqual   GREATER GREATER_EQUAL ">" ctx
-            | Some( '/' ) -> match matchChar   '/'  ctx with
-                             |  (true, newctx) ->
-                                consumeUntilEndOfLine newctx 
-                             | (false, newctx) ->
-                                addToken SLASH "/" newctx
+            | Some( '/' ) -> addCommentOrSlash ctx
             | Some( ' ') -> ctx
             | Some( '\r') -> ctx
             | Some( '\t') -> ctx
-            | Some( '\n') -> { ctx with line=ctx.line+1}
+            | Some( '\n') -> advanceLine ctx
             | Some( '"') -> stringLiteral  ctx
             | Digit -> numberLiteral  ctx 
             | Alpha -> identifier  ctx
@@ -277,7 +278,7 @@
                 ctx |> moveToCurrent
                     |> scanToken 
                     |> scanTokens // Recurse
-            else
+           else
                 ctx |> addToken  EOF "EOF" 
                     |> reverseTokens // List is backwards, because we accumulate from start.
  
