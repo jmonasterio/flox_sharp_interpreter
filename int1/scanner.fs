@@ -33,7 +33,7 @@
 
     type ScannerContext = {
         source: string
-        ch: char
+        ch: char option // will be None at EOF
         current: int
         start: int
         line: int
@@ -49,10 +49,11 @@
         Seq.tryItem (ctx.current + 1) ctx.source // Return None at end.
 
     let advance ctx  =
+        let newch = peek ctx
         let result = {
             ctx with 
                 current = ctx.current+1; 
-                ch = Seq.item ctx.current ctx.source // TBD: Similar to peek
+                ch = newch
         }
         result
 
@@ -86,7 +87,7 @@
             if not (peek ctx = Some(expected)) then
                 (false, ctx)
             else
-                (true, { ctx with current = ctx.current + 1;}) // TBD: Is this advance?
+                (true, advance ctx) 
             
    
  
@@ -114,11 +115,12 @@
         else
             ctx
     
+    // TBD: Does this work???
     let rec stringLiteral ctx =
         if( not ( peek ctx = Some('\"')) && (not (isAtEnd ctx)) ) then
             // Support multiline strings
             let newCtx = if ( peek ctx = Some('\n')) then   
-                            { ctx with current = ctx.current+1} // TBD: Is this 'advance'?
+                                advance ctx
                             else
                             ctx
             newCtx |> advance  |> stringLiteral  
@@ -201,14 +203,14 @@
         addTokenWithLiteral NUMBER literal digitString newCtx2 
 
         // Active patterns used to pattern match tokens.
-    let (|Alpha|_|) (ch:char) =
-        if isAlpha (Some(ch)) then
+    let (|Alpha|_|) (ch:char option) =
+        if isAlpha ch then
             Some()
         else
             None
 
-    let (|Digit|_|) (ch:char) =
-        if isDigit (Some(ch)) then
+    let (|Digit|_|) (ch:char option) =
+        if isDigit ch then
             Some()
         else
             None
@@ -217,30 +219,30 @@
     let scanToken ctx =
         let ctx = advance  ctx
         match ctx.ch with
-            | '(' -> addToken LEFT_PAREN "(" ctx
-            | ')' -> addToken RIGHT_PAREN ")" ctx
-            | '{' -> addToken LEFT_BRACE "{" ctx
-            | '}' -> addToken RIGHT_BRACE "}" ctx
-            | ',' -> addToken COMMA "," ctx
-            | '.' -> addToken DOT "." ctx
-            | '-' -> addToken MINUS "-" ctx
-            | '+' -> addToken PLUS "+" ctx
-            | ';' -> addToken SEMICOLON ";" ctx
-            | '*' -> addToken STAR "*" ctx
-            | '!' -> addTokenOptionalEqual   BANG BANG_EQUAL "!" ctx
-            | '=' -> addTokenOptionalEqual   EQUAL EQUAL_EQUAL "=" ctx
-            | '<' -> addTokenOptionalEqual   LESS LESS_EQUAL "<" ctx
-            | '>' -> addTokenOptionalEqual   GREATER GREATER_EQUAL ">" ctx
-            | '/' -> let (matched, newctx) = matchChar   '/'  ctx
-                     if  matched then
-                        consumeUntilEndOfLine newctx 
-                     else
-                        addToken SLASH "/" newctx
-            | ' ' -> ctx
-            | '\r' -> ctx
-            | '\t' -> ctx
-            | '\n' -> { ctx with line=ctx.line+1}
-            | '"' -> stringLiteral  ctx
+            | Some('(') -> addToken LEFT_PAREN "(" ctx
+            | Some(')') -> addToken RIGHT_PAREN ")" ctx
+            | Some('{') -> addToken LEFT_BRACE "{" ctx
+            | Some( '}') -> addToken RIGHT_BRACE "}" ctx
+            | Some( ',') -> addToken COMMA "," ctx
+            | Some( '.') -> addToken DOT "." ctx
+            | Some( '-' ) -> addToken MINUS "-" ctx
+            | Some( '+' ) -> addToken PLUS "+" ctx
+            | Some( ';' ) -> addToken SEMICOLON ";" ctx
+            | Some( '*' ) -> addToken STAR "*" ctx
+            | Some( '!' ) -> addTokenOptionalEqual   BANG BANG_EQUAL "!" ctx
+            | Some( '=' ) -> addTokenOptionalEqual   EQUAL EQUAL_EQUAL "=" ctx
+            | Some( '<' ) -> addTokenOptionalEqual   LESS LESS_EQUAL "<" ctx
+            | Some( '>' ) -> addTokenOptionalEqual   GREATER GREATER_EQUAL ">" ctx
+            | Some( '/' ) -> match matchChar   '/'  ctx with
+                             |  (true, newctx) ->
+                                consumeUntilEndOfLine newctx 
+                             | (false, newctx) ->
+                                addToken SLASH "/" newctx
+            | Some( ' ') -> ctx
+            | Some( '\r') -> ctx
+            | Some( '\t') -> ctx
+            | Some( '\n') -> { ctx with line=ctx.line+1}
+            | Some( '"') -> stringLiteral  ctx
             | Digit -> numberLiteral  ctx 
             | Alpha -> identifier  ctx
             | _ -> ctx
@@ -255,7 +257,7 @@
         start = 0;
         line = 1;
         hadError = false;
-        ch = ' ';
+        ch = None;
         tokens = [];
         }
 
@@ -275,6 +277,5 @@
                 ctx |> addToken  EOF "EOF" 
                     |> reverseTokens // List is backwards, because we accumulate from start.
  
-    // TBD: Should source be part of context?
     let scan source =
         ( initScanContext source |> scanTokens  ).tokens
